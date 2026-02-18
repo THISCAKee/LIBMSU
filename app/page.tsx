@@ -1,0 +1,253 @@
+"use client";
+
+import { useEffect, useState, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
+const CROSSFADE_MS = 2000; // ระยะเวลา crossfade (ms)
+
+// กำหนด Type ของข้อมูล
+interface MediaItem {
+  id: number;
+  url: string;
+  type: "image" | "video";
+  duration: number;
+}
+
+// สถานะ transition ของแต่ละ slide
+type SlidePhase = "enter" | "active" | "exit" | "hidden";
+
+export default function KioskPage() {
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [prevIndex, setPrevIndex] = useState<number | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<SlidePhase>("active");
+  const [prevPhase, setPrevPhase] = useState<SlidePhase>("hidden");
+  const [progress, setProgress] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const progressRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ดึงข้อมูลเมื่อเริ่มโหลดหน้าเว็บ
+  useEffect(() => {
+    const fetchMedia = async () => {
+      const { data, error } = await supabase
+        .from("media_items")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (data) setMediaList(data as MediaItem[]);
+      if (error) console.error("Error fetching media:", error);
+    };
+    fetchMedia();
+
+    const interval = setInterval(fetchMedia, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ฟังก์ชันเปลี่ยน slide พร้อม crossfade + zoom
+  const nextSlide = useCallback(() => {
+    // เคลียร์ timers เก่า
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
+
+    // ตั้งค่า: ภาพเก่าเริ่ม exit, ภาพใหม่เริ่ม enter
+    setPrevIndex(currentIndex);
+    setPrevPhase("exit");
+    setCurrentIndex((prev) => (prev + 1) % mediaList.length);
+    setCurrentPhase("enter");
+    setProgress(0);
+
+    // หลัง 1 frame — สั่ง animate เข้า (ต้อง delay เพื่อให้ browser paint state เริ่มต้นก่อน)
+    enterTimerRef.current = setTimeout(() => {
+      setCurrentPhase("active");
+    }, 50);
+
+    // หลัง crossfade จบ — cleanup ภาพเก่า
+    transitionTimerRef.current = setTimeout(() => {
+      setPrevIndex(null);
+      setPrevPhase("hidden");
+    }, CROSSFADE_MS + 100);
+  }, [currentIndex, mediaList.length]);
+
+  // logic เปลี่ยน slide + Progress Bar
+  useEffect(() => {
+    if (mediaList.length === 0) return;
+
+    const currentItem = mediaList[currentIndex];
+
+    if (progressRef.current) {
+      cancelAnimationFrame(progressRef.current);
+    }
+
+    if (currentItem.type === "image") {
+      const durationMs = currentItem.duration * 2000;
+      startTimeRef.current = performance.now();
+
+      const updateProgress = (now: number) => {
+        const elapsed = now - startTimeRef.current;
+        const pct = Math.min((elapsed / durationMs) * 100, 100);
+        setProgress(pct);
+
+        if (pct >= 100) {
+          nextSlide();
+        } else {
+          progressRef.current = requestAnimationFrame(updateProgress);
+        }
+      };
+      progressRef.current = requestAnimationFrame(updateProgress);
+
+      return () => {
+        if (progressRef.current) cancelAnimationFrame(progressRef.current);
+      };
+    }
+  }, [currentIndex, mediaList, nextSlide]);
+
+  const handleVideoTimeUpdate = () => {
+    const video = videoRef.current;
+    if (video && video.duration) {
+      setProgress((video.currentTime / video.duration) * 100);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
+    };
+  }, []);
+
+  // ===== Style helper ตาม phase =====
+  const getSlideStyle = (
+    phase: SlidePhase,
+    zIndex: number,
+  ): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      objectFit: "contain",
+      objectPosition: "center",
+      background: "#000",
+      zIndex,
+      willChange: "opacity, transform, filter",
+      transition: [
+        `opacity ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
+        `transform ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
+        `filter ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
+      ].join(", "),
+    };
+
+    switch (phase) {
+      case "enter":
+        // เริ่มต้น: ซ่อนอยู่ ย่อเล็กน้อย + blur
+        return {
+          ...base,
+          opacity: 0,
+          transform: "scale(1.04)",
+          filter: "blur(4px)",
+        };
+      case "active":
+        // animate เข้า: แสดงเต็ม ขนาดปกติ ชัด
+        return {
+          ...base,
+          opacity: 1,
+          transform: "scale(1)",
+          filter: "blur(0px)",
+        };
+      case "exit":
+        // animate ออก: จางหาย ขยายเล็กน้อย + blur
+        return {
+          ...base,
+          opacity: 0,
+          transform: "scale(0.97)",
+          filter: "blur(6px)",
+        };
+      case "hidden":
+      default:
+        return {
+          ...base,
+          opacity: 0,
+          transform: "scale(1)",
+          filter: "blur(0px)",
+        };
+    }
+  };
+
+  // ===== Loading =====
+  if (mediaList.length === 0) {
+    return (
+      <div className="kiosk-loading">
+        <div className="kiosk-spinner" />
+        <span className="kiosk-loading-text">กำลังโหลดข้อมูล...</span>
+      </div>
+    );
+  }
+
+  const currentItem = mediaList[currentIndex];
+  const prevItem = prevIndex !== null ? mediaList[prevIndex] : null;
+
+  // ===== Render =====
+  const renderSlide = (
+    item: MediaItem,
+    phase: SlidePhase,
+    zIndex: number,
+    isCurrent: boolean,
+  ) => {
+    const style = getSlideStyle(phase, zIndex);
+
+    if (item.type === "image") {
+      return (
+        <img
+          key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
+          src={item.url}
+          alt="Kiosk Slide"
+          style={style}
+          draggable={false}
+        />
+      );
+    }
+
+    return (
+      <video
+        key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
+        ref={isCurrent ? videoRef : undefined}
+        src={item.url}
+        autoPlay={isCurrent}
+        muted
+        playsInline
+        style={style}
+        onTimeUpdate={isCurrent ? handleVideoTimeUpdate : undefined}
+        onEnded={isCurrent ? nextSlide : undefined}
+      />
+    );
+  };
+
+  return (
+    <div className="kiosk-container">
+      {/* Layer 1: ภาพเก่า — exit (fade out + slight shrink + blur) */}
+      {prevItem && renderSlide(prevItem, prevPhase, 1, false)}
+
+      {/* Layer 2: ภาพปัจจุบัน — enter → active (fade in + slight zoom-in + deblur) */}
+      {renderSlide(currentItem, currentPhase, 2, true)}
+
+      {/* Slide Indicator Dots */}
+      {mediaList.length > 1 && (
+        <div className="kiosk-dots">
+          {mediaList.map((_, idx) => (
+            <div
+              key={idx}
+              className={`kiosk-dot ${idx === currentIndex ? "active" : ""}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Progress Bar */}
+      <div className="kiosk-progress-bar" style={{ width: `${progress}%` }} />
+    </div>
+  );
+}
