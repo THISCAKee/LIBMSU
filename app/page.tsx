@@ -177,6 +177,7 @@ export default function KioskPage() {
   const getSlideStyle = (
     phase: SlidePhase,
     zIndex: number,
+    isVideo: boolean,
   ): React.CSSProperties => {
     const base: React.CSSProperties = {
       position: "absolute",
@@ -195,30 +196,30 @@ export default function KioskPage() {
       ].join(", "),
     };
 
+    // วิดีโอไม่ใช้ blur เพราะทำให้ดูไม่ชัด
+    const blur = (px: number) => (isVideo ? "blur(0px)" : `blur(${px}px)`);
+
     switch (phase) {
       case "enter":
-        // เริ่มต้น: ซ่อนอยู่ ย่อเล็กน้อย + blur
         return {
           ...base,
           opacity: 0,
-          transform: "scale(1.04)",
-          filter: "blur(4px)",
+          transform: "scale(1.02)",
+          filter: blur(4),
         };
       case "active":
-        // animate เข้า: แสดงเต็ม ขนาดปกติ ชัด
         return {
           ...base,
           opacity: 1,
           transform: "scale(1)",
-          filter: "blur(0px)",
+          filter: blur(0),
         };
       case "exit":
-        // animate ออก: จางหาย ขยายเล็กน้อย + blur
         return {
           ...base,
           opacity: 0,
-          transform: "scale(0.97)",
-          filter: "blur(6px)",
+          transform: "scale(0.98)",
+          filter: blur(6),
         };
       case "hidden":
       default:
@@ -226,7 +227,7 @@ export default function KioskPage() {
           ...base,
           opacity: 0,
           transform: "scale(1)",
-          filter: "blur(0px)",
+          filter: blur(0),
         };
     }
   };
@@ -251,7 +252,7 @@ export default function KioskPage() {
     zIndex: number,
     isCurrent: boolean,
   ) => {
-    const style = getSlideStyle(phase, zIndex);
+    const style = getSlideStyle(phase, zIndex, item.type === "video");
 
     if (item.type === "image") {
       return (
