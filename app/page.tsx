@@ -86,7 +86,7 @@ export default function KioskPage() {
     };
     fetchMedia();
 
-    const interval = setInterval(fetchMedia, 5 * 60 * 1000);
+    const interval = setInterval(fetchMedia, 1 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -125,27 +125,37 @@ export default function KioskPage() {
       cancelAnimationFrame(progressRef.current);
     }
 
-    if (currentItem.type === "image") {
-      const durationMs = currentItem.duration * 2000;
-      startTimeRef.current = performance.now();
-
-      const updateProgress = (now: number) => {
-        const elapsed = now - startTimeRef.current;
-        const pct = Math.min((elapsed / durationMs) * 100, 100);
-        setProgress(pct);
-
-        if (pct >= 100) {
-          nextSlide();
-        } else {
-          progressRef.current = requestAnimationFrame(updateProgress);
-        }
-      };
-      progressRef.current = requestAnimationFrame(updateProgress);
-
-      return () => {
-        if (progressRef.current) cancelAnimationFrame(progressRef.current);
-      };
+    // ถ้าเป็นวิดีโอ — ไม่ใช้ timer, รอ onEnded เท่านั้น
+    if (currentItem.type === "video") {
+      setProgress(0);
+      // พยายาม play วิดีโอ (กรณี autoPlay ไม่ทำงาน)
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(() => {});
+      }
+      return; // ไม่ตั้ง timer ใดๆ — วิดีโอต้องเล่นจบเท่านั้น
     }
+
+    // ถ้าเป็นรูปภาพ — ใช้ timer ตาม duration
+    const durationMs = currentItem.duration * 2000;
+    startTimeRef.current = performance.now();
+
+    const updateProgress = (now: number) => {
+      const elapsed = now - startTimeRef.current;
+      const pct = Math.min((elapsed / durationMs) * 100, 100);
+      setProgress(pct);
+
+      if (pct >= 100) {
+        nextSlide();
+      } else {
+        progressRef.current = requestAnimationFrame(updateProgress);
+      }
+    };
+    progressRef.current = requestAnimationFrame(updateProgress);
+
+    return () => {
+      if (progressRef.current) cancelAnimationFrame(progressRef.current);
+    };
   }, [currentIndex, mediaList, nextSlide]);
 
   const handleVideoTimeUpdate = () => {
