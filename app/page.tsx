@@ -23,11 +23,55 @@ export default function KioskPage() {
   const [currentPhase, setCurrentPhase] = useState<SlidePhase>("active");
   const [prevPhase, setPrevPhase] = useState<SlidePhase>("hidden");
   const [progress, setProgress] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
+    }
+  }, []);
+
+  // ซิงค์ state กับ fullscreen event
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // Auto-hide ปุ่มหลัง 3 วินาที, แสดงเมื่อมีการขยับเมาส์/แตะหน้าจอ
+  useEffect(() => {
+    const showAndHide = () => {
+      setShowControls(true);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => setShowControls(false), 3000);
+    };
+
+    showAndHide(); // เริ่มต้น
+    window.addEventListener("mousemove", showAndHide);
+    window.addEventListener("touchstart", showAndHide);
+    return () => {
+      window.removeEventListener("mousemove", showAndHide);
+      window.removeEventListener("touchstart", showAndHide);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
 
   // ดึงข้อมูลเมื่อเริ่มโหลดหน้าเว็บ
   useEffect(() => {
@@ -227,12 +271,55 @@ export default function KioskPage() {
   };
 
   return (
-    <div className="kiosk-container">
-      {/* Layer 1: ภาพเก่า — exit (fade out + slight shrink + blur) */}
+    <div className="kiosk-container" ref={containerRef}>
+      {/* Layer 1: ภาพเก่า — exit */}
       {prevItem && renderSlide(prevItem, prevPhase, 1, false)}
 
-      {/* Layer 2: ภาพปัจจุบัน — enter → active (fade in + slight zoom-in + deblur) */}
+      {/* Layer 2: ภาพปัจจุบัน — enter → active */}
       {renderSlide(currentItem, currentPhase, 2, true)}
+
+      {/* Fullscreen Button */}
+      <button
+        onClick={toggleFullscreen}
+        className={`kiosk-fullscreen-btn ${showControls ? "visible" : ""}`}
+        title={isFullscreen ? "ออกจากเต็มจอ" : "เต็มจอ"}
+      >
+        {isFullscreen ? (
+          // ไอคอน Exit Fullscreen
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="4 14 10 14 10 20" />
+            <polyline points="20 10 14 10 14 4" />
+            <line x1="14" y1="10" x2="21" y2="3" />
+            <line x1="3" y1="21" x2="10" y2="14" />
+          </svg>
+        ) : (
+          // ไอคอน Enter Fullscreen
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="15 3 21 3 21 9" />
+            <polyline points="9 21 3 21 3 15" />
+            <line x1="21" y1="3" x2="14" y2="10" />
+            <line x1="3" y1="21" x2="10" y2="14" />
+          </svg>
+        )}
+      </button>
 
       {/* Slide Indicator Dots */}
       {mediaList.length > 1 && (
