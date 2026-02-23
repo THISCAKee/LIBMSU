@@ -1,179 +1,86 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 
-const CROSSFADE_MS = 2000; // ระยะเวลา crossfade (ms)
+const CROSSFADE_MS = 2000;
 
-// กำหนด Type ของข้อมูล
 interface MediaItem {
   id: number;
   url: string;
   type: "image" | "video";
   duration: number;
+  row_slot: 1 | 2 | 3;
 }
 
-// สถานะ transition ของแต่ละ slide
 type SlidePhase = "enter" | "active" | "exit" | "hidden";
 
-export default function KioskPage() {
-  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+// ===== Single Row Slideshow Component =====
+function RowSlideshow({ items }: { items: MediaItem[] }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [currentPhase, setCurrentPhase] = useState<SlidePhase>("active");
   const [prevPhase, setPrevPhase] = useState<SlidePhase>("hidden");
-  const [progress, setProgress] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
+
   const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const progressRef = useRef<number | null>(null);
-  const startTimeRef = useRef<number>(0);
+  const durationTimerRef = useRef<number | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fullscreen toggle
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await containerRef.current?.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch (err) {
-      console.error("Fullscreen error:", err);
-    }
-  }, []);
-
-  // ซิงค์ state กับ fullscreen event
-  useEffect(() => {
-    const onFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
-
-  // Auto-hide ปุ่มหลัง 3 วินาที, แสดงเมื่อมีการขยับเมาส์/แตะหน้าจอ
-  useEffect(() => {
-    const showAndHide = () => {
-      setShowControls(true);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => setShowControls(false), 3000);
-    };
-
-    showAndHide(); // เริ่มต้น
-    window.addEventListener("mousemove", showAndHide);
-    window.addEventListener("touchstart", showAndHide);
-    return () => {
-      window.removeEventListener("mousemove", showAndHide);
-      window.removeEventListener("touchstart", showAndHide);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    };
-  }, []);
-
-  // ดึงข้อมูลเมื่อเริ่มโหลดหน้าเว็บ
-  useEffect(() => {
-    const fetchMedia = async () => {
-      const { data, error } = await supabase
-        .from("media_items")
-        .select("*")
-        .order("created_at", { ascending: true });
-
-      if (data) setMediaList(data as MediaItem[]);
-      if (error) console.error("Error fetching media:", error);
-    };
-    fetchMedia();
-
-    const interval = setInterval(fetchMedia, 1 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // ฟังก์ชันเปลี่ยน slide พร้อม crossfade + zoom
   const nextSlide = useCallback(() => {
-    // เคลียร์ timers เก่า
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
     if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
 
-    // ตั้งค่า: ภาพเก่าเริ่ม exit, ภาพใหม่เริ่ม enter
     setPrevIndex(currentIndex);
     setPrevPhase("exit");
-    setCurrentIndex((prev) => (prev + 1) % mediaList.length);
+    setCurrentIndex((prev) => (prev + 1) % items.length);
     setCurrentPhase("enter");
-    setProgress(0);
 
-    // หลัง 1 frame — สั่ง animate เข้า (ต้อง delay เพื่อให้ browser paint state เริ่มต้นก่อน)
     enterTimerRef.current = setTimeout(() => {
       setCurrentPhase("active");
     }, 50);
 
-    // หลัง crossfade จบ — cleanup ภาพเก่า
     transitionTimerRef.current = setTimeout(() => {
       setPrevIndex(null);
       setPrevPhase("hidden");
     }, CROSSFADE_MS + 100);
-  }, [currentIndex, mediaList.length]);
+  }, [currentIndex, items.length]);
 
-  // logic เปลี่ยน slide + Progress Bar
+  // Auto-advance for images; videos advance via onEnded
   useEffect(() => {
-    if (mediaList.length === 0) return;
+    if (items.length === 0) return;
+    const currentItem = items[currentIndex];
 
-    const currentItem = mediaList[currentIndex];
+    if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
 
-    if (progressRef.current) {
-      cancelAnimationFrame(progressRef.current);
-    }
-
-    // ถ้าเป็นวิดีโอ — ไม่ใช้ timer, รอ onEnded เท่านั้น
     if (currentItem.type === "video") {
-      setProgress(0);
-      // พยายาม play วิดีโอ (กรณี autoPlay ไม่ทำงาน)
       if (videoRef.current) {
         videoRef.current.currentTime = 0;
         videoRef.current.play().catch(() => {});
       }
-      return; // ไม่ตั้ง timer ใดๆ — วิดีโอต้องเล่นจบเท่านั้น
+      return;
     }
 
-    // ถ้าเป็นรูปภาพ — ใช้ timer ตาม duration
-    const durationMs = currentItem.duration * 2000;
-    startTimeRef.current = performance.now();
-
-    const updateProgress = (now: number) => {
-      const elapsed = now - startTimeRef.current;
-      const pct = Math.min((elapsed / durationMs) * 100, 100);
-      setProgress(pct);
-
-      if (pct >= 100) {
-        nextSlide();
-      } else {
-        progressRef.current = requestAnimationFrame(updateProgress);
-      }
-    };
-    progressRef.current = requestAnimationFrame(updateProgress);
+    // Image: advance after duration
+    if (items.length > 1) {
+      const ms = currentItem.duration * 1000;
+      durationTimerRef.current = window.setTimeout(nextSlide, ms);
+    }
 
     return () => {
-      if (progressRef.current) cancelAnimationFrame(progressRef.current);
+      if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
     };
-  }, [currentIndex, mediaList, nextSlide]);
+  }, [currentIndex, items, nextSlide]);
 
-  const handleVideoTimeUpdate = () => {
-    const video = videoRef.current;
-    if (video && video.duration) {
-      setProgress((video.currentTime / video.duration) * 100);
-    }
-  };
-
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
       if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
+      if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
     };
   }, []);
 
-  // ===== Style helper ตาม phase =====
   const getSlideStyle = (
     phase: SlidePhase,
     zIndex: number,
@@ -195,8 +102,6 @@ export default function KioskPage() {
         `filter ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
       ].join(", "),
     };
-
-    // วิดีโอไม่ใช้ blur เพราะทำให้ดูไม่ชัด
     const blur = (px: number) => (isVideo ? "blur(0px)" : `blur(${px}px)`);
 
     switch (phase) {
@@ -208,12 +113,7 @@ export default function KioskPage() {
           filter: blur(4),
         };
       case "active":
-        return {
-          ...base,
-          opacity: 1,
-          transform: "scale(1)",
-          filter: blur(0),
-        };
+        return { ...base, opacity: 1, transform: "scale(1)", filter: blur(0) };
       case "exit":
         return {
           ...base,
@@ -223,29 +123,10 @@ export default function KioskPage() {
         };
       case "hidden":
       default:
-        return {
-          ...base,
-          opacity: 0,
-          transform: "scale(1)",
-          filter: blur(0),
-        };
+        return { ...base, opacity: 0, transform: "scale(1)", filter: blur(0) };
     }
   };
 
-  // ===== Loading =====
-  if (mediaList.length === 0) {
-    return (
-      <div className="kiosk-loading">
-        <div className="kiosk-spinner" />
-        <span className="kiosk-loading-text">กำลังโหลดข้อมูล...</span>
-      </div>
-    );
-  }
-
-  const currentItem = mediaList[currentIndex];
-  const prevItem = prevIndex !== null ? mediaList[prevIndex] : null;
-
-  // ===== Render =====
   const renderSlide = (
     item: MediaItem,
     phase: SlidePhase,
@@ -253,19 +134,20 @@ export default function KioskPage() {
     isCurrent: boolean,
   ) => {
     const style = getSlideStyle(phase, zIndex, item.type === "video");
-
     if (item.type === "image") {
       return (
-        <img
+        <Image
           key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
           src={item.url}
           alt="Kiosk Slide"
+          fill
+          sizes="100vw"
           style={style}
           draggable={false}
+          priority={isCurrent}
         />
       );
     }
-
     return (
       <video
         key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
@@ -275,19 +157,121 @@ export default function KioskPage() {
         muted
         playsInline
         style={style}
-        onTimeUpdate={isCurrent ? handleVideoTimeUpdate : undefined}
-        onEnded={isCurrent ? nextSlide : undefined}
+        onEnded={isCurrent && items.length > 1 ? nextSlide : undefined}
       />
     );
   };
 
+  if (items.length === 0) {
+    return (
+      <div className="row-empty">
+        <span>ยังไม่มีสื่อในช่องนี้</span>
+      </div>
+    );
+  }
+
+  const currentItem = items[currentIndex];
+  const prevItem = prevIndex !== null ? items[prevIndex] : null;
+
+  return (
+    <div className="row-slideshow">
+      {prevItem && renderSlide(prevItem, prevPhase, 1, false)}
+      {renderSlide(currentItem, currentPhase, 2, true)}
+      {/* Slide indicator dots */}
+      {items.length > 1 && (
+        <div className="row-dots">
+          {items.map((_, idx) => (
+            <div
+              key={idx}
+              className={`row-dot ${idx === currentIndex ? "active" : ""}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Row Wrapper =====
+function KioskRow({ items }: { items: MediaItem[] }) {
+  return (
+    <div className="kiosk-row">
+      <RowSlideshow items={items} />
+    </div>
+  );
+}
+
+// ===== Main Kiosk Page =====
+export default function KioskPage() {
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  useEffect(() => {
+    const showAndHide = () => {
+      setShowControls(true);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => setShowControls(false), 3000);
+    };
+    showAndHide();
+    window.addEventListener("mousemove", showAndHide);
+    window.addEventListener("touchstart", showAndHide);
+    return () => {
+      window.removeEventListener("mousemove", showAndHide);
+      window.removeEventListener("touchstart", showAndHide);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const fetchMedia = async () => {
+      const { data, error } = await supabase
+        .from("media_items")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (data) {
+        const normalized = data.map((item) => ({
+          ...item,
+          row_slot: (item.row_slot as number) || 1,
+        })) as MediaItem[];
+        setMediaList(normalized);
+      }
+      if (error) console.error("Error fetching media:", error);
+    };
+    fetchMedia();
+    const interval = setInterval(fetchMedia, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const row1 = mediaList.filter((m) => m.row_slot === 1);
+  const row2 = mediaList.filter((m) => m.row_slot === 2);
+  const row3 = mediaList.filter((m) => m.row_slot === 3);
+
   return (
     <div className="kiosk-container" ref={containerRef}>
-      {/* Layer 1: ภาพเก่า — exit */}
-      {prevItem && renderSlide(prevItem, prevPhase, 1, false)}
-
-      {/* Layer 2: ภาพปัจจุบัน — enter → active */}
-      {renderSlide(currentItem, currentPhase, 2, true)}
+      <KioskRow items={row1} />
+      <KioskRow items={row2} />
+      <KioskRow items={row3} />
 
       {/* Fullscreen Button */}
       <button
@@ -296,7 +280,6 @@ export default function KioskPage() {
         title={isFullscreen ? "ออกจากเต็มจอ" : "เต็มจอ"}
       >
         {isFullscreen ? (
-          // ไอคอน Exit Fullscreen
           <svg
             width="22"
             height="22"
@@ -313,7 +296,6 @@ export default function KioskPage() {
             <line x1="3" y1="21" x2="10" y2="14" />
           </svg>
         ) : (
-          // ไอคอน Enter Fullscreen
           <svg
             width="22"
             height="22"
@@ -331,21 +313,6 @@ export default function KioskPage() {
           </svg>
         )}
       </button>
-
-      {/* Slide Indicator Dots */}
-      {mediaList.length > 1 && (
-        <div className="kiosk-dots">
-          {mediaList.map((_, idx) => (
-            <div
-              key={idx}
-              className={`kiosk-dot ${idx === currentIndex ? "active" : ""}`}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Progress Bar */}
-      <div className="kiosk-progress-bar" style={{ width: `${progress}%` }} />
     </div>
   );
 }
