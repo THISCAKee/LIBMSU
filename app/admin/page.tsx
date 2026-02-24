@@ -10,6 +10,7 @@ interface MediaItem {
   type: "image" | "video";
   duration: number;
   row_slot: 1 | 2 | 3;
+  is_active: boolean;
 }
 
 const ROW_LABELS: Record<1 | 2 | 3, string> = {
@@ -180,6 +181,25 @@ export default function AdminPage() {
     setMediaList(
       mediaList.map((m) => (m.id === id ? { ...m, row_slot: newRow } : m)),
     );
+  };
+
+  const handleToggleActive = async (id: number, current: boolean) => {
+    const newVal = !current;
+    // Optimistic update
+    setMediaList(
+      mediaList.map((m) => (m.id === id ? { ...m, is_active: newVal } : m)),
+    );
+    const { error } = await supabase
+      .from("media_items")
+      .update({ is_active: newVal })
+      .eq("id", id);
+    if (error) {
+      // Revert on error
+      setMediaList(
+        mediaList.map((m) => (m.id === id ? { ...m, is_active: current } : m)),
+      );
+      alert("อัปเดตไม่สำเร็จ: " + error.message);
+    }
   };
 
   if (loading) {
@@ -440,7 +460,10 @@ export default function AdminPage() {
               ) : (
                 <div className="dash-grid">
                   {rowItems.map((item) => (
-                    <div key={item.id} className="dash-media-card">
+                    <div
+                      key={item.id}
+                      className={`dash-media-card ${!item.is_active ? "inactive" : ""}`}
+                    >
                       {/* Thumbnail */}
                       {item.type === "image" ? (
                         <img
@@ -458,14 +481,132 @@ export default function AdminPage() {
                         />
                       )}
 
-                      {/* Type Badge */}
-                      <div className="dash-media-type">
-                        {item.type === "video" ? "🎬 Video" : "🖼️ Image"}
-                      </div>
+                      {/* Inactive overlay dim */}
+                      {!item.is_active && <div className="dash-inactive-dim" />}
+
+                      {/* Type Badge — มุมซ้ายบน */}
+                      <div
+                        className="dash-media-type"
+                        style={{ left: "2.75rem" }}
+                      ></div>
+
+                      {/* 🗑️ Trash icon — มุมซ้ายบน */}
+                      <button
+                        onClick={() => handleDelete(item.id, item.url)}
+                        className="dash-trash-btn"
+                        title="ลบ"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+
+                      {/* ===== ปุ่มแสดง/ซ่อน — ลอยทับภาพ ไม่บีบ thumbnail ===== */}
+                      <button
+                        onClick={() =>
+                          handleToggleActive(item.id, item.is_active)
+                        }
+                        className={`dash-float-toggle ${item.is_active ? "on" : "off"}`}
+                      >
+                        {item.is_active ? (
+                          <>
+                            <svg
+                              width="11"
+                              height="11"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            แสดงอยู่
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              width="11"
+                              height="11"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                            ซ่อนอยู่
+                          </>
+                        )}
+                      </button>
 
                       {/* Controls Overlay */}
                       <div className="dash-media-overlay">
                         <div className="dash-media-controls">
+                          {/* Toggle Active */}
+                          <button
+                            onClick={() =>
+                              handleToggleActive(item.id, item.is_active)
+                            }
+                            className={`dash-toggle-btn ${item.is_active ? "on" : "off"}`}
+                            title={
+                              item.is_active ? "ซ่อนจากหน้าจอ" : "แสดงบนหน้าจอ"
+                            }
+                          >
+                            {item.is_active ? (
+                              <>
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                แสดงอยู่
+                              </>
+                            ) : (
+                              <>
+                                <svg
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M17.94 17.94A10.07 10verlay0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                                  <line x1="1" y1="1" x2="23" y2="23" />
+                                </svg>
+                                ซ่อนอยู่
+                              </>
+                            )}
+                          </button>
+
                           {/* Duration (images only) */}
                           {item.type === "image" && (
                             <div className="dash-media-duration">
@@ -525,26 +666,7 @@ export default function AdminPage() {
                             </div>
                           </div>
 
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDelete(item.id, item.url)}
-                            className="dash-delete-btn"
-                          >
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                            ลบ
-                          </button>
+                          {/* Delete button ย้ายไปมุมขวาบนของการ์ดแล้ว */}
                         </div>
                       </div>
                     </div>

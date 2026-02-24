@@ -250,10 +250,14 @@ export default function KioskPage() {
         .select("*")
         .order("created_at", { ascending: true });
       if (data) {
-        const normalized = data.map((item) => ({
-          ...item,
-          row_slot: (item.row_slot as number) || 1,
-        })) as MediaItem[];
+        const normalized = data
+          .map((item) => ({
+            ...item,
+            row_slot: (item.row_slot as number) || 1,
+            // ถ้า column is_active ยังไม่มีใน DB (null/undefined) → ถือว่าแสดง
+            is_active: item.is_active !== false,
+          }))
+          .filter((item) => item.is_active) as MediaItem[]; // กรองเฉพาะที่แสดง
         setMediaList(normalized);
       }
       if (error) console.error("Error fetching media:", error);
