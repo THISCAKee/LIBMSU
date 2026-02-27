@@ -835,6 +835,10 @@ body {
   background: #111;
 }
 
+.dash-media-card.has-error .dash-media-error {
+  display: flex !important;
+}
+
 .dash-media-type {
   position: absolute;
   top: 0.5rem;

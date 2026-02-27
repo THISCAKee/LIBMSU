@@ -226,10 +226,28 @@ export default function AdminPage() {
   const handleDelete = async (id: number, url: string) => {
     if (!confirm("ต้องการลบไฟล์นี้ใช่ไหม?")) return;
     try {
-      const fileName = url.split("/").pop();
-      if (fileName)
-        await supabase.storage.from("kiosk-media").remove([fileName]);
+      // เช็คว่ามีรายการอื่นใช้ไฟล์นี้อยู่หรือไม่
+      const { data: sharedItems, error } = await supabase
+        .from("media_items")
+        .select("id")
+        .eq("url", url)
+        .neq("id", id);
+
+      if (error) throw error;
+
+      const isShared = sharedItems && sharedItems.length > 0;
+
+      // ลบเรคคอร์ดออกจากฐานข้อมูล
       await supabase.from("media_items").delete().eq("id", id);
+
+      // ถ้าไม่มีที่ไหนใช้แล้ว ค่อยลบจาก Storage
+      if (!isShared) {
+        const fileName = url.split("/").pop();
+        if (fileName) {
+          await supabase.storage.from("kiosk-media").remove([fileName]);
+        }
+      }
+
       setMediaList(mediaList.filter((item) => item.id !== id));
     } catch (error: any) {
       alert("ลบไม่สำเร็จ: " + error.message);
@@ -637,9 +655,15 @@ export default function AdminPage() {
                       {item.type === "image" ? (
                         <img
                           src={item.url}
-                          alt=""
+                          alt="Broken Image"
                           className="dash-media-thumb"
                           loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            e.currentTarget.parentElement?.classList.add(
+                              "has-error",
+                            );
+                          }}
                         />
                       ) : (
                         <video
@@ -647,8 +671,41 @@ export default function AdminPage() {
                           className="dash-media-thumb"
                           preload="metadata"
                           muted
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            e.currentTarget.parentElement?.classList.add(
+                              "has-error",
+                            );
+                          }}
                         />
                       )}
+
+                      {/* Fallback Error Overlay (Shown by CSS if .has-error) */}
+                      <div
+                        className="dash-media-error"
+                        style={{
+                          display: "none",
+                          position: "absolute",
+                          inset: 0,
+                          background: "#333",
+                          color: "#ff6b6b",
+                          flexFlow: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          textAlign: "center",
+                          padding: "1rem",
+                          fontSize: "0.8rem",
+                          zIndex: 1,
+                          pointerEvents: "none",
+                        }}
+                      >
+                        <span
+                          style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}
+                        >
+                          ⚠️
+                        </span>
+                        ไฟล์ต้นฉบับถูกลบไปแล้ว
+                      </div>
 
                       {/* Inactive overlay dim */}
                       {!item.is_active && <div className="dash-inactive-dim" />}
