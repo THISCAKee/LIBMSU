@@ -11,7 +11,10 @@ interface MediaItem {
   duration: number;
   row_slot: 1 | 2 | 3;
   is_active: boolean;
+  kiosk_id: string;
 }
+
+const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-4"];
 
 const ROW_LABELS: Record<1 | 2 | 3, string> = {
   1: "Row 1 (บน)",
@@ -35,11 +38,13 @@ export default function AdminPage() {
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [selectedRow, setSelectedRow] = useState<1 | 2 | 3>(1);
+  const [selectedKiosk, setSelectedKiosk] = useState<string>("kiosk-1");
   const [duration, setDuration] = useState(10);
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showLibrary, setShowLibrary] = useState(false);
   const router = useRouter();
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -64,7 +69,14 @@ export default function AdminPage() {
       .order("row_slot", { ascending: true })
       .order("created_at", { ascending: true });
 
-    if (data) setMediaList(data as MediaItem[]);
+    if (data) {
+      // Normalize data (in case kiosk_id doesn't exist yet)
+      const normalized = data.map((item) => ({
+        ...item,
+        kiosk_id: item.kiosk_id || "kiosk-1",
+      })) as MediaItem[];
+      setMediaList(normalized);
+    }
     setLoading(false);
   };
 
@@ -114,24 +126,49 @@ export default function AdminPage() {
 
       const type = file.type.startsWith("video") ? "video" : "image";
 
-      // ลอง insert พร้อม row_slot ก่อน — ถ้า column ยังไม่มีใน DB ให้ fallback
+      // ลอง insert พร้อม row_slot และ kiosk_id ก่อน
       let dbError: any = null;
 
-      const { error: e1 } = await supabase
-        .from("media_items")
-        .insert([{ url: publicUrl, type, duration, row_slot: selectedRow }]);
+      const { error: e1 } = await supabase.from("media_items").insert([
+        {
+          url: publicUrl,
+          type,
+          duration,
+          row_slot: selectedRow,
+          kiosk_id: selectedKiosk,
+        },
+      ]);
       dbError = e1;
 
-      // Fallback: ถ้า column row_slot ยังไม่มีใน schema
-      if (dbError?.message?.includes("row_slot")) {
-        const { error: e2 } = await supabase
-          .from("media_items")
-          .insert([{ url: publicUrl, type, duration }]);
-        dbError = e2;
-        if (!e2) {
-          alert(
-            "⚠️ อัปโหลดสำเร็จ แต่ยังไม่สามารถกำหนด Row ได้\n\nกรุณารัน SQL ใน Supabase:\nALTER TABLE media_items ADD COLUMN IF NOT EXISTS row_slot smallint NOT NULL DEFAULT 1 CHECK (row_slot IN (1, 2, 3));",
-          );
+      // Fallback: ถ้า column ขาดหายไปใน schema
+      if (dbError) {
+        console.error("DB Insert Error:", dbError);
+        // ลอง insert แบบไม่มี kiosk_id
+        if (dbError.message?.includes("kiosk_id")) {
+          const { error: eKiosk } = await supabase
+            .from("media_items")
+            .insert([
+              { url: publicUrl, type, duration, row_slot: selectedRow },
+            ]);
+          dbError = eKiosk;
+          if (!eKiosk) {
+            alert(
+              "⚠️ อัปโหลดสำเร็จ แต่ยังไม่สามารถกำหนด Kiosk ได้\n\nกรุณารัน SQL ใน Supabase:\nALTER TABLE media_items ADD COLUMN IF NOT EXISTS kiosk_id text NOT NULL DEFAULT 'kiosk-1';",
+            );
+          }
+        }
+
+        // ถ้ายัง error row_slot แบบเก่า
+        if (dbError?.message?.includes("row_slot")) {
+          const { error: e2 } = await supabase
+            .from("media_items")
+            .insert([{ url: publicUrl, type, duration }]);
+          dbError = e2;
+          if (!e2) {
+            alert(
+              "⚠️ อัปโหลดสำเร็จ แต่ไม่สามารถกำหนด Row และ Kiosk ได้\n\nกรุณาเพิ่ม column row_slot และ kiosk_id ใน Supabase",
+            );
+          }
         }
       }
 
@@ -148,6 +185,42 @@ export default function AdminPage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleAddFromLibrary = async (
+    itemUrl: string,
+    itemType: "image" | "video",
+  ) => {
+    let dbError: any = null;
+    const { error: e1 } = await supabase.from("media_items").insert([
+      {
+        url: itemUrl,
+        type: itemType,
+        duration,
+        row_slot: selectedRow,
+        kiosk_id: selectedKiosk,
+      },
+    ]);
+    dbError = e1;
+
+    if (dbError) {
+      if (dbError.message?.includes("kiosk_id")) {
+        alert(
+          "⚠️ สื่อถูกเพิ่มไปยัง Kiosk-1 เท่านั้น เนื่องจากฐานข้อมูลยังไม่มี Column 'kiosk_id'\n\nกรุณาไปที่ Supabase SQL Editor แล้วรันคำสั่ง:\nALTER TABLE media_items ADD COLUMN kiosk_id text NOT NULL DEFAULT 'kiosk-1';",
+        );
+        await supabase
+          .from("media_items")
+          .insert([
+            { url: itemUrl, type: itemType, duration, row_slot: selectedRow },
+          ]);
+      } else if (dbError.message?.includes("row_slot")) {
+        await supabase
+          .from("media_items")
+          .insert([{ url: itemUrl, type: itemType, duration }]);
+      }
+    }
+    fetchMedia();
+    setShowLibrary(false);
   };
 
   const handleDelete = async (id: number, url: string) => {
@@ -180,6 +253,24 @@ export default function AdminPage() {
       .eq("id", id);
     setMediaList(
       mediaList.map((m) => (m.id === id ? { ...m, row_slot: newRow } : m)),
+    );
+  };
+
+  const handleMoveKiosk = async (id: number, newKiosk: string) => {
+    const { error } = await supabase
+      .from("media_items")
+      .update({ kiosk_id: newKiosk })
+      .eq("id", id);
+
+    if (error && error.message?.includes("kiosk_id")) {
+      alert(
+        "⚠️ ย้าย Kiosk ไม่สำเร็จ เนื่องจากฐานข้อมูลยังไม่มี Column 'kiosk_id'\n\nกรุณาไปที่ Supabase SQL Editor แล้วรันคำสั่ง:\nALTER TABLE media_items ADD COLUMN kiosk_id text NOT NULL DEFAULT 'kiosk-1';",
+      );
+      return;
+    }
+
+    setMediaList(
+      mediaList.map((m) => (m.id === id ? { ...m, kiosk_id: newKiosk } : m)),
     );
   };
 
@@ -261,24 +352,100 @@ export default function AdminPage() {
       </header>
 
       <div className="dash-content">
+        {/* ===== Kiosk Selector ===== */}
+        <div className="dash-kiosk-selector" style={{ marginBottom: "1.5rem" }}>
+          <h3 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>
+            จัดการจอแสดงผล (Kiosk)
+          </h3>
+          <div
+            className="dash-row-tabs"
+            style={{
+              display: "inline-flex",
+              background: "var(--bg-card)",
+              padding: "0.25rem",
+              borderRadius: "10px",
+              border: "1px solid var(--border-light)",
+            }}
+          >
+            {KIOSK_LIST.map((k) => (
+              <button
+                key={k}
+                className={`dash-row-tab ${selectedKiosk === k ? "active" : ""}`}
+                style={
+                  selectedKiosk === k
+                    ? ({
+                        "--tab-color": "#3b82f6",
+                      } as React.CSSProperties)
+                    : {}
+                }
+                onClick={() => setSelectedKiosk(k)}
+              >
+                {k.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* ===== Upload Section ===== */}
         <div className="dash-upload-card">
-          <div className="dash-upload-card-title">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div
+            className="dash-upload-card-title"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            เพิ่มสื่อใหม่
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              เพิ่มสื่อใหม่
+            </div>
+            <button
+              onClick={() => setShowLibrary(true)}
+              style={{
+                background: "rgba(59, 130, 246, 0.1)",
+                color: "#3b82f6",
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+                padding: "0.4rem 0.75rem",
+                borderRadius: "6px",
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M2 15h10" />
+                <path d="M9 18l3-3-3-3" />
+              </svg>
+              เลือกจากคลังสื่อ
+            </button>
           </div>
 
           {/* Drag & Drop Zone */}
@@ -429,7 +596,9 @@ export default function AdminPage() {
 
         {/* ===== Row Sections ===== */}
         {rows.map((rowNum) => {
-          const rowItems = mediaList.filter((m) => m.row_slot === rowNum);
+          const rowItems = mediaList.filter(
+            (m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk,
+          );
           return (
             <div
               key={rowNum}
@@ -643,7 +812,7 @@ export default function AdminPage() {
                                 marginBottom: "0.25rem",
                               }}
                             >
-                              ย้ายไป
+                              ย้ายไป (แถว)
                             </span>
                             <div style={{ display: "flex", gap: "0.25rem" }}>
                               {rows
@@ -666,6 +835,48 @@ export default function AdminPage() {
                             </div>
                           </div>
 
+                          {/* Move to Kiosk */}
+                          <div
+                            className="dash-media-move"
+                            style={{ marginTop: "0.25rem" }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "0.625rem",
+                                color: "rgba(255,255,255,0.5)",
+                                marginBottom: "0.25rem",
+                              }}
+                            >
+                              ย้ายไป (Kiosk)
+                            </span>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "0.25rem",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {KIOSK_LIST.filter(
+                                (k) => k !== item.kiosk_id,
+                              ).map((k) => (
+                                <button
+                                  key={k}
+                                  className="dash-move-btn"
+                                  style={
+                                    {
+                                      "--move-color": "#3b82f6",
+                                      padding: "0.15rem 0.35rem",
+                                    } as React.CSSProperties
+                                  }
+                                  onClick={() => handleMoveKiosk(item.id, k)}
+                                  title={`ย้ายไป ${k}`}
+                                >
+                                  {k.replace("kiosk-", "K")}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
                           {/* Delete button ย้ายไปมุมขวาบนของการ์ดแล้ว */}
                         </div>
                       </div>
@@ -677,6 +888,155 @@ export default function AdminPage() {
           );
         })}
       </div>
+
+      {/* ===== Library Modal ===== */}
+      {showLibrary && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.6)",
+            zIndex: 100,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg-card)",
+              width: "90%",
+              maxWidth: "800px",
+              height: "80vh",
+              borderRadius: "12px",
+              border: "1px solid var(--border-light)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div
+              style={{
+                padding: "1.25rem",
+                borderBottom: "1px solid var(--border-light)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
+                คลังสื่อ (เลือกเพื่อให้แสดงใน {selectedKiosk.toUpperCase()} -{" "}
+                {ROW_LABELS[selectedRow]})
+              </h3>
+              <button
+                onClick={() => setShowLibrary(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "1.2rem",
+                  cursor: "pointer",
+                  color: "#888",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              style={{
+                padding: "1.5rem",
+                overflowY: "auto",
+                flex: 1,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                gap: "1.25rem",
+                alignContent: "start",
+              }}
+            >
+              {Array.from(
+                new Map(mediaList.map((item) => [item.url, item])).values(),
+              ).map((item: any) => (
+                <div
+                  key={item.url}
+                  onClick={() => handleAddFromLibrary(item.url, item.type)}
+                  style={{
+                    position: "relative",
+                    aspectRatio: "16/9",
+                    background: "#000",
+                    borderRadius: "8px",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    border: "2px solid transparent",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.borderColor = "#3b82f6";
+                    e.currentTarget.style.transform = "scale(1.02)";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.borderColor = "transparent";
+                    e.currentTarget.style.transform = "scale(1)";
+                  }}
+                >
+                  {item.type === "image" ? (
+                    <img
+                      src={item.url}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                    />
+                  ) : (
+                    <video
+                      src={item.url}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
+                      muted
+                    />
+                  )}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      width: "100%",
+                      background:
+                        "linear-gradient(to top, rgba(0,0,0,0.8), transparent)",
+                      color: "white",
+                      fontSize: "0.80rem",
+                      padding: "0.75rem 0.5rem 0.5rem 0.5rem",
+                      textAlign: "center",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    + เพิ่มลงช่องนี้
+                  </div>
+                </div>
+              ))}
+              {mediaList.length === 0 && (
+                <div
+                  style={{
+                    gridColumn: "1/-1",
+                    textAlign: "center",
+                    color: "#888",
+                    padding: "3rem",
+                  }}
+                >
+                  ยังไม่มีสื่อในระบบ
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

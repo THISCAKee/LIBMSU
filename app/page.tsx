@@ -12,7 +12,10 @@ interface MediaItem {
   type: "image" | "video";
   duration: number;
   row_slot: 1 | 2 | 3;
+  kiosk_id: string;
 }
+
+const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-4"];
 
 type SlidePhase = "enter" | "active" | "exit" | "hidden";
 
@@ -206,6 +209,8 @@ export default function KioskPage() {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [selectedKiosk, setSelectedKiosk] = useState<string>("kiosk-1");
+  const [showSelector, setShowSelector] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -243,29 +248,65 @@ export default function KioskPage() {
     };
   }, []);
 
+  // โหลด Kiosk จาก LocalStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("selected_kiosk");
+    if (saved && KIOSK_LIST.includes(saved)) {
+      setSelectedKiosk(saved);
+    }
+  }, []);
+
+  const changeKiosk = (k: string) => {
+    setSelectedKiosk(k);
+    localStorage.setItem("selected_kiosk", k);
+    setShowSelector(false);
+  };
+
   useEffect(() => {
     const fetchMedia = async () => {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("media_items")
         .select("*")
+        .eq("kiosk_id", selectedKiosk)
         .order("created_at", { ascending: true });
+
+      if (error && error.message.includes("kiosk_id")) {
+        // Fallback if kiosk_id column doesn't exist yet
+        const fallback = await supabase
+          .from("media_items")
+          .select("*")
+          .order("created_at", { ascending: true });
+        data = fallback.data;
+        error = fallback.error;
+      }
+
       if (data) {
+        // Fallback ถ้ายังไม่มี kiosk_id แต่ดึงมาได้ (กรณี error fallback ตอนอัปโหลด)
         const normalized = data
           .map((item) => ({
             ...item,
             row_slot: (item.row_slot as number) || 1,
-            // ถ้า column is_active ยังไม่มีใน DB (null/undefined) → ถือว่าแสดง
             is_active: item.is_active !== false,
+            kiosk_id: item.kiosk_id || "kiosk-1",
           }))
-          .filter((item) => item.is_active) as MediaItem[]; // กรองเฉพาะที่แสดง
+          .filter(
+            (item) =>
+              item.is_active &&
+              (item.kiosk_id === selectedKiosk ||
+                (!item.kiosk_id && selectedKiosk === "kiosk-1")),
+          ) as MediaItem[];
         setMediaList(normalized);
       }
       if (error) console.error("Error fetching media:", error);
     };
+
+    // ดึงข้อมูลครั้งแรก
     fetchMedia();
-    const interval = setInterval(fetchMedia, 5 * 60 * 1000);
+
+    // ดึงใหม่ทุกๆ 1 นาที (หรือตามต้องการ)
+    const interval = setInterval(fetchMedia, 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedKiosk]);
 
   const row1 = mediaList.filter((m) => m.row_slot === 1);
   const row2 = mediaList.filter((m) => m.row_slot === 2);
@@ -317,6 +358,116 @@ export default function KioskPage() {
           </svg>
         )}
       </button>
+
+      {/* Kiosk Selector Button */}
+      {!isFullscreen && (
+        <button
+          onClick={() => setShowSelector(!showSelector)}
+          className={`kiosk-selector-btn ${showControls ? "visible" : ""}`}
+          title="เลือก Kiosk"
+          style={{
+            position: "absolute",
+            top: "1rem",
+            right: "1rem",
+            zIndex: 60,
+            background: "rgba(0,0,0,0.5)",
+            color: "white",
+            border: "none",
+            padding: "0.5rem 1rem",
+            borderRadius: "8px",
+            backdropFilter: "blur(4px)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            opacity: showControls ? 1 : 0,
+            transition: "opacity 0.3s",
+            pointerEvents: showControls ? "auto" : "none",
+            fontFamily: "'Prompt', sans-serif",
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
+          {selectedKiosk.toUpperCase()}
+        </button>
+      )}
+
+      {/* Selector Modal */}
+      {!isFullscreen && showSelector && (
+        <div
+          style={{
+            position: "absolute",
+            top: "4rem",
+            right: "1rem",
+            zIndex: 60,
+            background: "rgba(255,255,255,0.95)",
+            backdropFilter: "blur(10px)",
+            padding: "1rem",
+            borderRadius: "12px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.5rem",
+            color: "#333",
+            fontFamily: "'Prompt', sans-serif",
+          }}
+        >
+          <h4
+            style={{
+              margin: "0 0 0.5rem 0",
+              fontSize: "0.9rem",
+              color: "#666",
+            }}
+          >
+            เลือก Kiosk เพื่อแสดงผล
+          </h4>
+          {KIOSK_LIST.map((k) => (
+            <button
+              key={k}
+              onClick={() => changeKiosk(k)}
+              style={{
+                padding: "0.75rem 1rem",
+                borderRadius: "8px",
+                border: "none",
+                background: selectedKiosk === k ? "#3b82f6" : "#f1f5f9",
+                color: selectedKiosk === k ? "white" : "#333",
+                fontWeight: selectedKiosk === k ? "bold" : "normal",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.2s",
+              }}
+            >
+              • {k.toUpperCase()}
+            </button>
+          ))}
+          <button
+            onClick={() => setShowSelector(false)}
+            style={{
+              marginTop: "0.5rem",
+              padding: "0.5rem",
+              background: "transparent",
+              border: "none",
+              color: "#666",
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            ปิด
+          </button>
+        </div>
+      )}
     </div>
   );
 }
