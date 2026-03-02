@@ -14,7 +14,7 @@ interface MediaItem {
   kiosk_id: string;
 }
 
-const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-4"];
+const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
 
 const ROW_LABELS: Record<1 | 2 | 3, string> = {
   1: "Row 1 (บน)",

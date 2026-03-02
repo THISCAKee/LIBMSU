@@ -15,7 +15,7 @@ interface MediaItem {
   kiosk_id: string;
 }
 
-const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-4"];
+const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
 
 type SlidePhase = "enter" | "active" | "exit" | "hidden";
 
