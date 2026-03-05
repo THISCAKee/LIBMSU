@@ -372,6 +372,12 @@ export default function AdminPage() {
       const fromId = dragNodeRef.current;
       const sourceRow = dragSourceRowRef.current;
 
+      // If dropped in the same row, do nothing here and do not clear refs!
+      // Let handleDragEnd process the same-row reorder.
+      if (fromId === null || sourceRow === null || sourceRow === targetRow)
+        return;
+
+      // It's a cross-row move, clear refs & states
       dragNodeRef.current = null;
       dragSourceRowRef.current = null;
       dragOverIdRef.current = null;
@@ -379,9 +385,6 @@ export default function AdminPage() {
       setDragOverId(null);
       setDragSourceRow(null);
       setDropTargetRow(null);
-
-      if (fromId === null || sourceRow === null || sourceRow === targetRow)
-        return;
 
       // Optimistic: move item to new row
       setMediaList((prev) =>
