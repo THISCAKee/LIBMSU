@@ -827,6 +827,65 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
+/* Drag states */
+.dash-media-card[draggable="true"] {
+  cursor: grab;
+}
+
+.dash-media-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.dash-media-card.is-dragging {
+  opacity: 0.35;
+  transform: scale(0.96);
+  border-style: dashed;
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.dash-media-card.drag-over {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--accent-glow),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+  transform: translateY(-4px) scale(1.02);
+}
+
+/* Drag handle badge — appears at top-center on hover */
+.dash-drag-handle {
+  position: absolute;
+  top: 0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dash-media-card:hover .dash-drag-handle {
+  opacity: 1;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.dash-media-card.is-dragging .dash-drag-handle,
+.dash-media-card.drag-over .dash-drag-handle {
+  opacity: 1;
+  color: var(--accent-light);
+}
+
 .dash-media-thumb {
   width: 100%;
   aspect-ratio: 16 / 9;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
@@ -12,6 +12,7 @@ interface MediaItem {
   row_slot: 1 | 2 | 3;
   is_active: boolean;
   kiosk_id: string;
+  sort_order: number;
 }
 
 const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
@@ -45,8 +46,13 @@ export default function AdminPage() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showLibrary, setShowLibrary] = useState(false);
+  // Drag-and-drop reorder state
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const router = useRouter();
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const dragNodeRef = useRef<number | null>(null);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -67,13 +73,15 @@ export default function AdminPage() {
       .from("media_items")
       .select("*")
       .order("row_slot", { ascending: true })
+      .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
 
     if (data) {
-      // Normalize data (in case kiosk_id doesn't exist yet)
-      const normalized = data.map((item) => ({
+      // Normalize data and assign sort_order if missing
+      const normalized = data.map((item, idx) => ({
         ...item,
         kiosk_id: item.kiosk_id || "kiosk-1",
+        sort_order: item.sort_order ?? idx,
       })) as MediaItem[];
       setMediaList(normalized);
     }
@@ -310,6 +318,90 @@ export default function AdminPage() {
       alert("อัปเดตไม่สำเร็จ: " + error.message);
     }
   };
+
+  // ===== Drag-and-drop reorder handlers =====
+  const handleDragStart = useCallback((e: React.DragEvent, id: number) => {
+    dragNodeRef.current = id;
+    setDraggingId(id);
+    e.dataTransfer.effectAllowed = "move";
+    // Small delay so the card's dragging style applies before snapshot
+    setTimeout(() => {
+      setDraggingId(id);
+    }, 0);
+  }, []);
+
+  const handleDragEnter = useCallback((id: number) => {
+    if (dragNodeRef.current === id) return;
+    setDragOverId(id);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    async (rowNum: 1 | 2 | 3) => {
+      const fromId = dragNodeRef.current;
+      const toId = dragOverId;
+
+      dragNodeRef.current = null;
+      setDraggingId(null);
+      setDragOverId(null);
+
+      if (fromId === null || toId === null || fromId === toId) return;
+
+      // Re-order the list optimistically
+      setMediaList((prev) => {
+        const rowItems = prev
+          .filter((m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk)
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+        const fromIdx = rowItems.findIndex((m) => m.id === fromId);
+        const toIdx = rowItems.findIndex((m) => m.id === toId);
+        if (fromIdx === -1 || toIdx === -1) return prev;
+
+        // Reorder
+        const reordered = [...rowItems];
+        const [moved] = reordered.splice(fromIdx, 1);
+        reordered.splice(toIdx, 0, moved);
+
+        // Assign new sort_order values
+        const updated = reordered.map((item, idx) => ({
+          ...item,
+          sort_order: idx,
+        }));
+
+        // Replace items in the full list
+        const updatedMap = new Map(updated.map((m) => [m.id, m]));
+        return prev.map((m) => updatedMap.get(m.id) ?? m);
+      });
+
+      // Persist to Supabase
+      setIsSavingOrder(true);
+      try {
+        const rowItems = mediaList
+          .filter((m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk)
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+        const fromIdx = rowItems.findIndex((m) => m.id === fromId);
+        const toIdx = rowItems.findIndex((m) => m.id === toId);
+        if (fromIdx === -1 || toIdx === -1) return;
+
+        const reordered = [...rowItems];
+        const [moved] = reordered.splice(fromIdx, 1);
+        reordered.splice(toIdx, 0, moved);
+
+        const updates = reordered.map((item, idx) =>
+          supabase
+            .from("media_items")
+            .update({ sort_order: idx })
+            .eq("id", item.id),
+        );
+        await Promise.all(updates);
+      } catch {
+        // If sort_order column doesn't exist, silently ignore — local state is already reordered
+      } finally {
+        setIsSavingOrder(false);
+      }
+    },
+    [dragOverId, mediaList, selectedKiosk],
+  );
 
   if (loading) {
     return (
@@ -613,10 +705,43 @@ export default function AdminPage() {
         </div>
 
         {/* ===== Row Sections ===== */}
+        {isSavingOrder && (
+          <div
+            style={{
+              position: "fixed",
+              bottom: "1.5rem",
+              right: "1.5rem",
+              background: "rgba(99,102,241,0.9)",
+              color: "#fff",
+              padding: "0.5rem 1rem",
+              borderRadius: "0.5rem",
+              fontSize: "0.8rem",
+              fontWeight: 600,
+              zIndex: 200,
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              boxShadow: "0 4px 16px rgba(99,102,241,0.4)",
+            }}
+          >
+            <span
+              className="kiosk-spinner"
+              style={{
+                width: "0.75rem",
+                height: "0.75rem",
+                borderWidth: "2px",
+              }}
+            />
+            บันทึกลำดับ...
+          </div>
+        )}
         {rows.map((rowNum) => {
-          const rowItems = mediaList.filter(
-            (m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk,
-          );
+          const rowItems = mediaList
+            .filter(
+              (m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk,
+            )
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
           return (
             <div
               key={rowNum}
@@ -636,7 +761,43 @@ export default function AdminPage() {
                 <div className="dash-row-section-title">
                   {ROW_LABELS[rowNum]}
                 </div>
-                <div className="dash-grid-count">{rowItems.length} รายการ</div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "0.7rem",
+                      color: "rgba(255,255,255,0.35)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.3rem",
+                    }}
+                  >
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <line x1="8" y1="6" x2="21" y2="6" />
+                      <line x1="8" y1="12" x2="21" y2="12" />
+                      <line x1="8" y1="18" x2="21" y2="18" />
+                      <line x1="3" y1="6" x2="3.01" y2="6" />
+                      <line x1="3" y1="12" x2="3.01" y2="12" />
+                      <line x1="3" y1="18" x2="3.01" y2="18" />
+                    </svg>
+                    ลากเพื่อเรียงลำดับ
+                  </span>
+                  <div className="dash-grid-count">
+                    {rowItems.length} รายการ
+                  </div>
+                </div>
               </div>
 
               {rowItems.length === 0 ? (
@@ -649,8 +810,42 @@ export default function AdminPage() {
                   {rowItems.map((item) => (
                     <div
                       key={item.id}
-                      className={`dash-media-card ${!item.is_active ? "inactive" : ""}`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item.id)}
+                      onDragEnter={() => handleDragEnter(item.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnd={() => handleDragEnd(rowNum)}
+                      className={[
+                        "dash-media-card",
+                        !item.is_active ? "inactive" : "",
+                        draggingId === item.id ? "is-dragging" : "",
+                        dragOverId === item.id && draggingId !== item.id
+                          ? "drag-over"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
+                      {/* Drag Handle */}
+                      <div
+                        className="dash-drag-handle"
+                        title="ลากเพื่อเรียงลำดับ"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                        >
+                          <circle cx="9" cy="5" r="1.5" />
+                          <circle cx="15" cy="5" r="1.5" />
+                          <circle cx="9" cy="12" r="1.5" />
+                          <circle cx="15" cy="12" r="1.5" />
+                          <circle cx="9" cy="19" r="1.5" />
+                          <circle cx="15" cy="19" r="1.5" />
+                        </svg>
+                      </div>
+
                       {/* Thumbnail */}
                       {item.type === "image" ? (
                         <img
