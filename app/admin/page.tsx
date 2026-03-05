@@ -820,6 +820,24 @@ export default function AdminPage() {
               (m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk,
             )
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+          // Live preview: reorder cards in real-time while dragging within this row
+          let displayItems = rowItems;
+          if (
+            draggingId !== null &&
+            dragOverId !== null &&
+            draggingId !== dragOverId &&
+            dragSourceRow === rowNum
+          ) {
+            const fromIdx = rowItems.findIndex((m) => m.id === draggingId);
+            const toIdx = rowItems.findIndex((m) => m.id === dragOverId);
+            if (fromIdx !== -1 && toIdx !== -1) {
+              const reordered = [...rowItems];
+              const [moved] = reordered.splice(fromIdx, 1);
+              reordered.splice(toIdx, 0, moved);
+              displayItems = reordered;
+            }
+          }
           return (
             <div
               key={rowNum}
@@ -906,7 +924,7 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <div className="dash-grid">
-                  {rowItems.map((item) => (
+                  {displayItems.map((item) => (
                     <div
                       key={item.id}
                       draggable
@@ -918,9 +936,6 @@ export default function AdminPage() {
                         "dash-media-card",
                         !item.is_active ? "inactive" : "",
                         draggingId === item.id ? "is-dragging" : "",
-                        dragOverId === item.id && draggingId !== item.id
-                          ? "drag-over"
-                          : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
