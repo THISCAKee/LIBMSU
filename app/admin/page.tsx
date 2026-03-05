@@ -56,6 +56,9 @@ export default function AdminPage() {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const dragNodeRef = useRef<number | null>(null);
   const dragSourceRowRef = useRef<1 | 2 | 3 | null>(null);
+  // Refs for reading latest values inside drag callbacks (avoids stale closure)
+  const dragOverIdRef = useRef<number | null>(null);
+  const mediaListRef = useRef<MediaItem[]>([]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -80,13 +83,13 @@ export default function AdminPage() {
       .order("created_at", { ascending: true });
 
     if (data) {
-      // Normalize data and assign sort_order if missing
       const normalized = data.map((item, idx) => ({
         ...item,
         kiosk_id: item.kiosk_id || "kiosk-1",
         sort_order: item.sort_order ?? idx,
       })) as MediaItem[];
       setMediaList(normalized);
+      mediaListRef.current = normalized;
     }
     setLoading(false);
   };
@@ -336,7 +339,8 @@ export default function AdminPage() {
 
   const handleDragEnterCard = useCallback((id: number) => {
     if (dragNodeRef.current === id) return;
-    setDragOverId(id);
+    dragOverIdRef.current = id; // update ref immediately (no batching delay)
+    setDragOverId(id); // update state for visual feedback
   }, []);
 
   const handleRowDragEnter = useCallback(
@@ -370,6 +374,7 @@ export default function AdminPage() {
 
       dragNodeRef.current = null;
       dragSourceRowRef.current = null;
+      dragOverIdRef.current = null;
       setDraggingId(null);
       setDragOverId(null);
       setDragSourceRow(null);
@@ -408,14 +413,15 @@ export default function AdminPage() {
 
   const handleDragEnd = useCallback(
     async (rowNum: 1 | 2 | 3) => {
-      // If dropped onto another row, handleRowDrop already handled it.
-      // This only handles same-row reorder.
+      // Read from refs — always current, never stale
       const fromId = dragNodeRef.current;
-      const toId = dragOverId;
+      const toId = dragOverIdRef.current; // ← ref, not state
       const sourceRow = dragSourceRowRef.current;
 
+      // Clear all drag refs & state
       dragNodeRef.current = null;
       dragSourceRowRef.current = null;
+      dragOverIdRef.current = null;
       setDraggingId(null);
       setDragOverId(null);
       setDragSourceRow(null);
@@ -425,8 +431,9 @@ export default function AdminPage() {
       if (fromId === null || toId === null || fromId === toId) return;
       if (sourceRow !== rowNum) return;
 
-      // Re-order the list optimistically
+      // Re-order optimistically using ref (no stale closure)
       setMediaList((prev) => {
+        mediaListRef.current = prev; // keep ref in sync
         const rowItems = prev
           .filter((m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk)
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -444,29 +451,24 @@ export default function AdminPage() {
           sort_order: idx,
         }));
 
-        const updatedMap = new Map(updated.map((m) => [m.id, m]));
-        return prev.map((m) => updatedMap.get(m.id) ?? m);
+        const next = prev.map((m) => updated.find((u) => u.id === m.id) ?? m);
+        mediaListRef.current = next;
+        return next;
       });
 
-      // Persist sort_order to Supabase
+      // Persist sort_order — read from ref so we always have fresh data
       setIsSavingOrder(true);
       try {
-        const rowItems = mediaList
+        // Give setMediaList one tick to commit, then read from ref
+        await new Promise((r) => setTimeout(r, 0));
+        const snapshot = mediaListRef.current
           .filter((m) => m.row_slot === rowNum && m.kiosk_id === selectedKiosk)
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
-        const fromIdx = rowItems.findIndex((m) => m.id === fromId);
-        const toIdx = rowItems.findIndex((m) => m.id === toId);
-        if (fromIdx === -1 || toIdx === -1) return;
-
-        const reordered = [...rowItems];
-        const [moved] = reordered.splice(fromIdx, 1);
-        reordered.splice(toIdx, 0, moved);
-
-        const updates = reordered.map((item, idx) =>
+        const updates = snapshot.map((item) =>
           supabase
             .from("media_items")
-            .update({ sort_order: idx })
+            .update({ sort_order: item.sort_order })
             .eq("id", item.id),
         );
         await Promise.all(updates);
@@ -476,7 +478,7 @@ export default function AdminPage() {
         setIsSavingOrder(false);
       }
     },
-    [dragOverId, mediaList, selectedKiosk],
+    [selectedKiosk], // ← no longer depends on dragOverId or mediaList
   );
 
   if (loading) {
