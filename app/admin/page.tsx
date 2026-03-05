@@ -49,10 +49,13 @@ export default function AdminPage() {
   // Drag-and-drop reorder state
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const [dragSourceRow, setDragSourceRow] = useState<1 | 2 | 3 | null>(null);
+  const [dropTargetRow, setDropTargetRow] = useState<1 | 2 | 3 | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const router = useRouter();
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const dragNodeRef = useRef<number | null>(null);
+  const dragSourceRowRef = useRef<1 | 2 | 3 | null>(null);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -319,32 +322,108 @@ export default function AdminPage() {
     }
   };
 
-  // ===== Drag-and-drop reorder handlers =====
-  const handleDragStart = useCallback((e: React.DragEvent, id: number) => {
-    dragNodeRef.current = id;
-    setDraggingId(id);
-    e.dataTransfer.effectAllowed = "move";
-    // Small delay so the card's dragging style applies before snapshot
-    setTimeout(() => {
+  // ===== Drag-and-drop handlers (same-row reorder + cross-row move) =====
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, id: number, rowNum: 1 | 2 | 3) => {
+      dragNodeRef.current = id;
+      dragSourceRowRef.current = rowNum;
       setDraggingId(id);
-    }, 0);
-  }, []);
+      setDragSourceRow(rowNum);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    [],
+  );
 
-  const handleDragEnter = useCallback((id: number) => {
+  const handleDragEnterCard = useCallback((id: number) => {
     if (dragNodeRef.current === id) return;
     setDragOverId(id);
   }, []);
 
-  const handleDragEnd = useCallback(
-    async (rowNum: 1 | 2 | 3) => {
+  const handleRowDragEnter = useCallback(
+    (e: React.DragEvent, rowNum: 1 | 2 | 3) => {
+      e.preventDefault();
+      if (
+        dragSourceRowRef.current !== null &&
+        dragSourceRowRef.current !== rowNum
+      ) {
+        setDropTargetRow(rowNum);
+      }
+    },
+    [],
+  );
+
+  const handleRowDragLeave = useCallback(
+    (e: React.DragEvent, rowNum: 1 | 2 | 3) => {
+      // Only clear if leaving the section itself (not entering a child)
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setDropTargetRow((prev) => (prev === rowNum ? null : prev));
+      }
+    },
+    [],
+  );
+
+  const handleRowDrop = useCallback(
+    async (e: React.DragEvent, targetRow: 1 | 2 | 3) => {
+      e.preventDefault();
       const fromId = dragNodeRef.current;
-      const toId = dragOverId;
+      const sourceRow = dragSourceRowRef.current;
 
       dragNodeRef.current = null;
+      dragSourceRowRef.current = null;
       setDraggingId(null);
       setDragOverId(null);
+      setDragSourceRow(null);
+      setDropTargetRow(null);
 
+      if (fromId === null || sourceRow === null || sourceRow === targetRow)
+        return;
+
+      // Optimistic: move item to new row
+      setMediaList((prev) =>
+        prev.map((m) =>
+          m.id === fromId ? { ...m, row_slot: targetRow, sort_order: 9999 } : m,
+        ),
+      );
+
+      // Persist row_slot change
+      setIsSavingOrder(true);
+      try {
+        await supabase
+          .from("media_items")
+          .update({ row_slot: targetRow })
+          .eq("id", fromId);
+      } catch {
+        // revert on failure
+        setMediaList((prev) =>
+          prev.map((m) =>
+            m.id === fromId ? { ...m, row_slot: sourceRow } : m,
+          ),
+        );
+      } finally {
+        setIsSavingOrder(false);
+      }
+    },
+    [],
+  );
+
+  const handleDragEnd = useCallback(
+    async (rowNum: 1 | 2 | 3) => {
+      // If dropped onto another row, handleRowDrop already handled it.
+      // This only handles same-row reorder.
+      const fromId = dragNodeRef.current;
+      const toId = dragOverId;
+      const sourceRow = dragSourceRowRef.current;
+
+      dragNodeRef.current = null;
+      dragSourceRowRef.current = null;
+      setDraggingId(null);
+      setDragOverId(null);
+      setDragSourceRow(null);
+      setDropTargetRow(null);
+
+      // Only reorder within the same row
       if (fromId === null || toId === null || fromId === toId) return;
+      if (sourceRow !== rowNum) return;
 
       // Re-order the list optimistically
       setMediaList((prev) => {
@@ -356,23 +435,20 @@ export default function AdminPage() {
         const toIdx = rowItems.findIndex((m) => m.id === toId);
         if (fromIdx === -1 || toIdx === -1) return prev;
 
-        // Reorder
         const reordered = [...rowItems];
         const [moved] = reordered.splice(fromIdx, 1);
         reordered.splice(toIdx, 0, moved);
 
-        // Assign new sort_order values
         const updated = reordered.map((item, idx) => ({
           ...item,
           sort_order: idx,
         }));
 
-        // Replace items in the full list
         const updatedMap = new Map(updated.map((m) => [m.id, m]));
         return prev.map((m) => updatedMap.get(m.id) ?? m);
       });
 
-      // Persist to Supabase
+      // Persist sort_order to Supabase
       setIsSavingOrder(true);
       try {
         const rowItems = mediaList
@@ -395,7 +471,7 @@ export default function AdminPage() {
         );
         await Promise.all(updates);
       } catch {
-        // If sort_order column doesn't exist, silently ignore — local state is already reordered
+        // silently ignore if sort_order column missing
       } finally {
         setIsSavingOrder(false);
       }
@@ -745,13 +821,28 @@ export default function AdminPage() {
           return (
             <div
               key={rowNum}
-              className="dash-row-section"
+              className={[
+                "dash-row-section",
+                dropTargetRow === rowNum ? "row-drop-target" : "",
+                draggingId !== null && dragSourceRow !== rowNum
+                  ? "row-drop-zone"
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               style={
                 {
                   "--row-bg": ROW_COLORS[rowNum],
                   "--row-accent": ROW_ACCENT[rowNum],
                 } as React.CSSProperties
               }
+              onDragEnter={(e) => handleRowDragEnter(e, rowNum)}
+              onDragLeave={(e) => handleRowDragLeave(e, rowNum)}
+              onDragOver={(e) => {
+                if (dragSourceRow !== null && dragSourceRow !== rowNum)
+                  e.preventDefault();
+              }}
+              onDrop={(e) => handleRowDrop(e, rowNum)}
             >
               <div className="dash-row-header">
                 <div
@@ -771,10 +862,14 @@ export default function AdminPage() {
                   <span
                     style={{
                       fontSize: "0.7rem",
-                      color: "rgba(255,255,255,0.35)",
+                      color:
+                        dropTargetRow === rowNum
+                          ? ROW_ACCENT[rowNum]
+                          : "rgba(255,255,255,0.35)",
                       display: "flex",
                       alignItems: "center",
                       gap: "0.3rem",
+                      transition: "color 0.2s ease",
                     }}
                   >
                     <svg
@@ -792,7 +887,9 @@ export default function AdminPage() {
                       <line x1="3" y1="12" x2="3.01" y2="12" />
                       <line x1="3" y1="18" x2="3.01" y2="18" />
                     </svg>
-                    ลากเพื่อเรียงลำดับ
+                    {dropTargetRow === rowNum
+                      ? "วางที่นี่เพื่อย้ายมา"
+                      : "ลากเพื่อเรียงหรือย้ายแถว"}
                   </span>
                   <div className="dash-grid-count">
                     {rowItems.length} รายการ
@@ -811,8 +908,8 @@ export default function AdminPage() {
                     <div
                       key={item.id}
                       draggable
-                      onDragStart={(e) => handleDragStart(e, item.id)}
-                      onDragEnter={() => handleDragEnter(item.id)}
+                      onDragStart={(e) => handleDragStart(e, item.id, rowNum)}
+                      onDragEnter={() => handleDragEnterCard(item.id)}
                       onDragOver={(e) => e.preventDefault()}
                       onDragEnd={() => handleDragEnd(rowNum)}
                       className={[
@@ -981,52 +1078,6 @@ export default function AdminPage() {
                       <div className="dash-media-overlay">
                         <div className="dash-media-controls">
                           {/* Toggle Active */}
-                          <button
-                            onClick={() =>
-                              handleToggleActive(item.id, item.is_active)
-                            }
-                            className={`dash-toggle-btn ${item.is_active ? "on" : "off"}`}
-                            title={
-                              item.is_active ? "ซ่อนจากหน้าจอ" : "แสดงบนหน้าจอ"
-                            }
-                          >
-                            {item.is_active ? (
-                              <>
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                แสดงอยู่
-                              </>
-                            ) : (
-                              <>
-                                <svg
-                                  width="13"
-                                  height="13"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M17.94 17.94A10.07 10verlay0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                                  <line x1="1" y1="1" x2="23" y2="23" />
-                                </svg>
-                                ซ่อนอยู่
-                              </>
-                            )}
-                          </button>
 
                           {/* Duration (images only) */}
                           {item.type === "image" && (
@@ -1055,80 +1106,7 @@ export default function AdminPage() {
                             </div>
                           )}
 
-                          {/* Move to Row */}
-                          <div className="dash-media-move">
-                            <span
-                              style={{
-                                fontSize: "0.625rem",
-                                color: "rgba(255,255,255,0.5)",
-                                marginBottom: "0.25rem",
-                              }}
-                            >
-                              ย้ายไป (แถว)
-                            </span>
-                            <div style={{ display: "flex", gap: "0.25rem" }}>
-                              {rows
-                                .filter((r) => r !== rowNum)
-                                .map((r) => (
-                                  <button
-                                    key={r}
-                                    className="dash-move-btn"
-                                    style={
-                                      {
-                                        "--move-color": ROW_ACCENT[r],
-                                      } as React.CSSProperties
-                                    }
-                                    onClick={() => handleMoveRow(item.id, r)}
-                                    title={`ย้ายไป ${ROW_LABELS[r]}`}
-                                  >
-                                    R{r}
-                                  </button>
-                                ))}
-                            </div>
-                          </div>
-
-                          {/* Move to Kiosk */}
-                          <div
-                            className="dash-media-move"
-                            style={{ marginTop: "0.25rem" }}
-                          >
-                            <span
-                              style={{
-                                fontSize: "0.625rem",
-                                color: "rgba(255,255,255,0.5)",
-                                marginBottom: "0.25rem",
-                              }}
-                            >
-                              ย้ายไป (Kiosk)
-                            </span>
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "0.25rem",
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              {KIOSK_LIST.filter(
-                                (k) => k !== item.kiosk_id,
-                              ).map((k) => (
-                                <button
-                                  key={k}
-                                  className="dash-move-btn"
-                                  style={
-                                    {
-                                      "--move-color": "#3b82f6",
-                                      padding: "0.15rem 0.35rem",
-                                    } as React.CSSProperties
-                                  }
-                                  onClick={() => handleMoveKiosk(item.id, k)}
-                                  title={`ย้ายไป ${k}`}
-                                >
-                                  {k.replace("kiosk-", "K")}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
+                          {/* Move to Row — now done by drag-and-drop across row sections */}
                           {/* Delete button ย้ายไปมุมขวาบนของการ์ดแล้ว */}
                         </div>
                       </div>
