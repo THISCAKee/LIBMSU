@@ -998,6 +998,45 @@ export default function AdminPage() {
                         </span>
                         ไฟล์ต้นฉบับถูกลบไปแล้ว
                       </div>
+                      {/* Duration badge — มุมขวาบน (images only) */}
+                      {item.type === "image" && (
+                        <div
+                          className="dash-duration-badge"
+                          style={{
+                            position: "absolute",
+                            top: "0.45rem",
+                            right: "0.45rem",
+                            left: "auto",
+                            bottom: "auto",
+                            transform: "none",
+                            zIndex: 8,
+                          }}
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateDuration(
+                                item.id,
+                                Math.max(3, item.duration - 1),
+                              );
+                            }}
+                          >
+                            −
+                          </button>
+                          <span>{item.duration}s</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateDuration(
+                                item.id,
+                                Math.min(60, item.duration + 1),
+                              );
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
 
                       {/* Inactive overlay dim */}
                       {!item.is_active && <div className="dash-inactive-dim" />}
@@ -1007,7 +1046,6 @@ export default function AdminPage() {
                         className="dash-media-type"
                         style={{ left: "2.75rem" }}
                       ></div>
-
                       {/* 🗑️ Trash icon — มุมซ้ายบน */}
                       <button
                         onClick={() => handleDelete(item.id, item.url)}
@@ -1079,34 +1117,6 @@ export default function AdminPage() {
                         <div className="dash-media-controls">
                           {/* Toggle Active */}
 
-                          {/* Duration (images only) */}
-                          {item.type === "image" && (
-                            <div className="dash-media-duration">
-                              <button
-                                onClick={() =>
-                                  handleUpdateDuration(
-                                    item.id,
-                                    Math.max(3, item.duration - 1),
-                                  )
-                                }
-                              >
-                                −
-                              </button>
-                              <span>{item.duration}s</span>
-                              <button
-                                onClick={() =>
-                                  handleUpdateDuration(
-                                    item.id,
-                                    Math.min(60, item.duration + 1),
-                                  )
-                                }
-                              >
-                                +
-                              </button>
-                            </div>
-                          )}
-
-                          {/* Move to Row — now done by drag-and-drop across row sections */}
                           {/* Delete button ย้ายไปมุมขวาบนของการ์ดแล้ว */}
                         </div>
                       </div>
