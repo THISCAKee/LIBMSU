@@ -4,6 +4,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
+type ModeFilter = "both" | "3row" | "single";
+
 interface MediaItem {
   id: number;
   url: string;
@@ -13,6 +15,7 @@ interface MediaItem {
   is_active: boolean;
   kiosk_id: string;
   sort_order: number;
+  display_mode_filter: ModeFilter;
 }
 
 const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
@@ -91,6 +94,7 @@ export default function AdminPage() {
         ...item,
         kiosk_id: item.kiosk_id || "kiosk-1",
         sort_order: item.sort_order ?? idx,
+        display_mode_filter: (item.display_mode_filter as ModeFilter) || "both",
       })) as MediaItem[];
       setMediaList(normalized);
       mediaListRef.current = normalized;
@@ -360,6 +364,30 @@ export default function AdminPage() {
         mediaList.map((m) => (m.id === id ? { ...m, is_active: current } : m)),
       );
       alert("อัปเดตไม่สำเร็จ: " + error.message);
+    }
+  };
+
+  const handleUpdateModeFilter = async (id: number, current: ModeFilter) => {
+    const cycle: Record<ModeFilter, ModeFilter> = {
+      both: "3row",
+      "3row": "single",
+      single: "both",
+    };
+    const next = cycle[current];
+    setMediaList((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, display_mode_filter: next } : m)),
+    );
+    try {
+      await supabase
+        .from("media_items")
+        .update({ display_mode_filter: next })
+        .eq("id", id);
+    } catch {
+      setMediaList((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, display_mode_filter: current } : m,
+        ),
+      );
     }
   };
 
@@ -1214,6 +1242,52 @@ export default function AdminPage() {
                           </button>
                         </div>
                       )}
+
+                      {/* Mode filter badge — มุมซ้ายล่าง */}
+                      {(() => {
+                        const filter: ModeFilter =
+                          item.display_mode_filter || "both";
+                        const FILTER_LABEL: Record<ModeFilter, string> = {
+                          both: "ทุกโหมด",
+                          "3row": "3 แถว",
+                          single: "หน้าเดี่ยว",
+                        };
+                        const FILTER_COLOR: Record<ModeFilter, string> = {
+                          both: "rgba(100,116,139,0.88)",
+                          "3row": "rgba(99,102,241,0.88)",
+                          single: "rgba(20,184,166,0.88)",
+                        };
+                        return (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateModeFilter(item.id, filter);
+                            }}
+                            title={`แสดงใน: ${FILTER_LABEL[filter]} — คลิกเพื่อเปลี่ยน`}
+                            style={{
+                              position: "absolute",
+                              bottom: "0.45rem",
+                              left: "0.45rem",
+                              zIndex: 8,
+                              background: FILTER_COLOR[filter],
+                              border: "none",
+                              borderRadius: "999px",
+                              padding: "0.2rem 0.55rem",
+                              color: "#fff",
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              fontFamily: "inherit",
+                              cursor: "pointer",
+                              backdropFilter: "blur(6px)",
+                              letterSpacing: "0.03em",
+                              transition: "background 0.2s ease",
+                              pointerEvents: "auto",
+                            }}
+                          >
+                            {FILTER_LABEL[filter]}
+                          </button>
+                        );
+                      })()}
 
                       {/* Inactive overlay dim */}
                       {!item.is_active && <div className="dash-inactive-dim" />}

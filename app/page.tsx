@@ -372,9 +372,17 @@ export default function KioskPage() {
     return () => clearInterval(interval);
   }, [selectedKiosk]);
 
-  const row1 = mediaList.filter((m) => m.row_slot === 1);
-  const row2 = mediaList.filter((m) => m.row_slot === 2);
-  const row3 = mediaList.filter((m) => m.row_slot === 3);
+  // Filter by display_mode_filter before splitting into rows
+  const visibleMedia = mediaList.filter((m) => {
+    const f =
+      (m as MediaItem & { display_mode_filter?: string }).display_mode_filter ||
+      "both";
+    return f === "both" || f === displayMode;
+  });
+
+  const row1 = visibleMedia.filter((m) => m.row_slot === 1);
+  const row2 = visibleMedia.filter((m) => m.row_slot === 2);
+  const row3 = visibleMedia.filter((m) => m.row_slot === 3);
   // Single mode: merge all rows in order
   const allItems = [...row1, ...row2, ...row3];
 
