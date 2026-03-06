@@ -13,10 +13,11 @@ interface MediaItem {
   duration: number;
   row_slot: 1 | 2 | 3;
   kiosk_id: string;
+  sort_order?: number;
 }
 
 const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
-
+type DisplayMode = "3row" | "single";
 type SlidePhase = "enter" | "active" | "exit" | "hidden";
 
 // ===== Single Row Slideshow Component =====
@@ -50,6 +51,14 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
     }, CROSSFADE_MS + 100);
   }, [currentIndex, items.length]);
 
+  // Reset index when items change (e.g. mode switch)
+  useEffect(() => {
+    setCurrentIndex(0);
+    setPrevIndex(null);
+    setCurrentPhase("active");
+    setPrevPhase("hidden");
+  }, [items.length]);
+
   // Auto-advance for images; videos advance via onEnded
   useEffect(() => {
     if (items.length === 0) return;
@@ -65,7 +74,6 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
       return;
     }
 
-    // Image: advance after duration
     if (items.length > 1) {
       const ms = currentItem.duration * 1000;
       durationTimerRef.current = window.setTimeout(nextSlide, ms);
@@ -204,6 +212,44 @@ function KioskRow({ items }: { items: MediaItem[] }) {
   );
 }
 
+// ===== Mode Toggle Icon =====
+function ModeIcon({ mode }: { mode: DisplayMode }) {
+  if (mode === "3row") {
+    // Icon: 3 horizontal bars → click to switch to single
+    return (
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="3" y="3" width="18" height="5" rx="1" />
+        <rect x="3" y="10" width="18" height="4" rx="1" />
+        <rect x="3" y="16" width="18" height="5" rx="1" />
+      </svg>
+    );
+  }
+  // Icon: single tall page → click to switch to 3row
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="6" y="2" width="12" height="20" rx="2" />
+    </svg>
+  );
+}
+
 // ===== Main Kiosk Page =====
 export default function KioskPage() {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -211,6 +257,7 @@ export default function KioskPage() {
   const [showControls, setShowControls] = useState(true);
   const [selectedKiosk, setSelectedKiosk] = useState<string>("kiosk-1");
   const [showSelector, setShowSelector] = useState(false);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("3row");
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -248,11 +295,17 @@ export default function KioskPage() {
     };
   }, []);
 
-  // โหลด Kiosk จาก LocalStorage
+  // โหลด Kiosk และ displayMode จาก LocalStorage
   useEffect(() => {
-    const saved = localStorage.getItem("selected_kiosk");
-    if (saved && KIOSK_LIST.includes(saved)) {
-      setSelectedKiosk(saved);
+    const savedKiosk = localStorage.getItem("selected_kiosk");
+    if (savedKiosk && KIOSK_LIST.includes(savedKiosk)) {
+      setSelectedKiosk(savedKiosk);
+    }
+    const savedMode = localStorage.getItem(
+      "display_mode",
+    ) as DisplayMode | null;
+    if (savedMode === "3row" || savedMode === "single") {
+      setDisplayMode(savedMode);
     }
   }, []);
 
@@ -262,16 +315,23 @@ export default function KioskPage() {
     setShowSelector(false);
   };
 
+  const toggleDisplayMode = () => {
+    const next: DisplayMode = displayMode === "3row" ? "single" : "3row";
+    setDisplayMode(next);
+    localStorage.setItem("display_mode", next);
+  };
+
   useEffect(() => {
     const fetchMedia = async () => {
       let { data, error } = await supabase
         .from("media_items")
         .select("*")
         .eq("kiosk_id", selectedKiosk)
+        .order("row_slot", { ascending: true })
+        .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
 
       if (error && error.message.includes("kiosk_id")) {
-        // Fallback if kiosk_id column doesn't exist yet
         const fallback = await supabase
           .from("media_items")
           .select("*")
@@ -281,7 +341,6 @@ export default function KioskPage() {
       }
 
       if (data) {
-        // Fallback ถ้ายังไม่มี kiosk_id แต่ดึงมาได้ (กรณี error fallback ตอนอัปโหลด)
         const normalized = data
           .map((item) => ({
             ...item,
@@ -300,10 +359,7 @@ export default function KioskPage() {
       if (error) console.error("Error fetching media:", error);
     };
 
-    // ดึงข้อมูลครั้งแรก
     fetchMedia();
-
-    // ดึงใหม่ทุกๆ 1 นาที (หรือตามต้องการ)
     const interval = setInterval(fetchMedia, 60 * 1000);
     return () => clearInterval(interval);
   }, [selectedKiosk]);
@@ -311,12 +367,37 @@ export default function KioskPage() {
   const row1 = mediaList.filter((m) => m.row_slot === 1);
   const row2 = mediaList.filter((m) => m.row_slot === 2);
   const row3 = mediaList.filter((m) => m.row_slot === 3);
+  // Single mode: merge all rows in order
+  const allItems = [...row1, ...row2, ...row3];
+
+  const controlsStyle: React.CSSProperties = {
+    opacity: showControls ? 1 : 0,
+    transition: "opacity 0.3s",
+    pointerEvents: showControls ? "auto" : "none",
+  };
 
   return (
-    <div className="kiosk-container" ref={containerRef}>
-      <KioskRow items={row1} />
-      <KioskRow items={row2} />
-      <KioskRow items={row3} />
+    <div
+      className={`kiosk-container ${displayMode === "single" ? "kiosk-single" : ""}`}
+      ref={containerRef}
+    >
+      {/* ===== Display: 3-Row mode ===== */}
+      {displayMode === "3row" && (
+        <>
+          <KioskRow items={row1} />
+          <KioskRow items={row2} />
+          <KioskRow items={row3} />
+        </>
+      )}
+
+      {/* ===== Display: Single fullscreen mode ===== */}
+      {displayMode === "single" && (
+        <div className="kiosk-row" style={{ flex: "1 1 100%" }}>
+          <RowSlideshow items={allItems} />
+        </div>
+      )}
+
+      {/* ===== Controls overlay ===== */}
 
       {/* Fullscreen Button */}
       <button
@@ -359,6 +440,35 @@ export default function KioskPage() {
         )}
       </button>
 
+      {/* Display Mode Toggle Button */}
+      <button
+        onClick={toggleDisplayMode}
+        title={displayMode === "3row" ? "สลับเป็นหน้าเดี่ยว" : "สลับเป็น 3 แถว"}
+        style={{
+          ...controlsStyle,
+          position: "absolute",
+          bottom: "1rem",
+          right: "1rem",
+          zIndex: 60,
+          background: "rgba(0,0,0,0.55)",
+          color: "white",
+          border: "1px solid rgba(255,255,255,0.2)",
+          padding: "0.5rem",
+          borderRadius: "10px",
+          backdropFilter: "blur(8px)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          fontSize: "0.75rem",
+          fontFamily: "'Prompt', sans-serif",
+          fontWeight: 600,
+        }}
+      >
+        <ModeIcon mode={displayMode} />
+        {displayMode === "3row" ? "3 แถว" : "หน้าเดี่ยว"}
+      </button>
+
       {/* Kiosk Selector Button */}
       {!isFullscreen && (
         <button
@@ -366,6 +476,7 @@ export default function KioskPage() {
           className={`kiosk-selector-btn ${showControls ? "visible" : ""}`}
           title="เลือก Kiosk"
           style={{
+            ...controlsStyle,
             position: "absolute",
             top: "1rem",
             right: "1rem",
@@ -380,9 +491,6 @@ export default function KioskPage() {
             display: "flex",
             alignItems: "center",
             gap: "0.5rem",
-            opacity: showControls ? 1 : 0,
-            transition: "opacity 0.3s",
-            pointerEvents: showControls ? "auto" : "none",
             fontFamily: "'Prompt', sans-serif",
           }}
         >
