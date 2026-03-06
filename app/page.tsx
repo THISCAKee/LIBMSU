@@ -348,22 +348,26 @@ export default function KioskPage() {
       if (error) console.error("Error fetching media:", error);
 
       // Fetch display mode from kiosk_settings
-      try {
-        const { data: settings } = await supabase
-          .from("kiosk_settings")
-          .select("display_mode")
-          .eq("kiosk_id", selectedKiosk)
-          .maybeSingle();
-        if (
-          settings?.display_mode === "single" ||
-          settings?.display_mode === "3row"
-        ) {
-          setDisplayMode(settings.display_mode);
-        } else {
-          setDisplayMode("3row");
-        }
-      } catch {
-        // table doesn't exist yet, stay on current mode
+      const { data: settings, error: settingsError } = await supabase
+        .from("kiosk_settings")
+        .select("display_mode")
+        .eq("kiosk_id", selectedKiosk)
+        .maybeSingle();
+
+      if (settingsError) {
+        console.warn(
+          "kiosk_settings table may not exist yet. Run SQL to create it.\n" +
+            settingsError.message,
+        );
+        // Keep current displayMode unchanged — don't reset to 3row
+      } else if (
+        settings?.display_mode === "single" ||
+        settings?.display_mode === "3row"
+      ) {
+        setDisplayMode(settings.display_mode);
+      } else if (settings === null) {
+        // Row doesn't exist yet for this kiosk — default to 3row
+        setDisplayMode("3row");
       }
     };
 
