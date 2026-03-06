@@ -295,17 +295,11 @@ export default function KioskPage() {
     };
   }, []);
 
-  // โหลด Kiosk และ displayMode จาก LocalStorage
+  // โหลด Kiosk จาก LocalStorage
   useEffect(() => {
     const savedKiosk = localStorage.getItem("selected_kiosk");
     if (savedKiosk && KIOSK_LIST.includes(savedKiosk)) {
       setSelectedKiosk(savedKiosk);
-    }
-    const savedMode = localStorage.getItem(
-      "display_mode",
-    ) as DisplayMode | null;
-    if (savedMode === "3row" || savedMode === "single") {
-      setDisplayMode(savedMode);
     }
   }, []);
 
@@ -315,14 +309,9 @@ export default function KioskPage() {
     setShowSelector(false);
   };
 
-  const toggleDisplayMode = () => {
-    const next: DisplayMode = displayMode === "3row" ? "single" : "3row";
-    setDisplayMode(next);
-    localStorage.setItem("display_mode", next);
-  };
-
   useEffect(() => {
-    const fetchMedia = async () => {
+    const fetchAll = async () => {
+      // Fetch media items
       let { data, error } = await supabase
         .from("media_items")
         .select("*")
@@ -357,10 +346,29 @@ export default function KioskPage() {
         setMediaList(normalized);
       }
       if (error) console.error("Error fetching media:", error);
+
+      // Fetch display mode from kiosk_settings
+      try {
+        const { data: settings } = await supabase
+          .from("kiosk_settings")
+          .select("display_mode")
+          .eq("kiosk_id", selectedKiosk)
+          .maybeSingle();
+        if (
+          settings?.display_mode === "single" ||
+          settings?.display_mode === "3row"
+        ) {
+          setDisplayMode(settings.display_mode);
+        } else {
+          setDisplayMode("3row");
+        }
+      } catch {
+        // table doesn't exist yet, stay on current mode
+      }
     };
 
-    fetchMedia();
-    const interval = setInterval(fetchMedia, 60 * 1000);
+    fetchAll();
+    const interval = setInterval(fetchAll, 30 * 1000); // poll every 30s
     return () => clearInterval(interval);
   }, [selectedKiosk]);
 
@@ -438,35 +446,6 @@ export default function KioskPage() {
             <line x1="3" y1="21" x2="10" y2="14" />
           </svg>
         )}
-      </button>
-
-      {/* Display Mode Toggle Button */}
-      <button
-        onClick={toggleDisplayMode}
-        title={displayMode === "3row" ? "สลับเป็นหน้าเดี่ยว" : "สลับเป็น 3 แถว"}
-        style={{
-          ...controlsStyle,
-          position: "absolute",
-          bottom: "1rem",
-          right: "1rem",
-          zIndex: 60,
-          background: "rgba(0,0,0,0.55)",
-          color: "white",
-          border: "1px solid rgba(255,255,255,0.2)",
-          padding: "0.5rem",
-          borderRadius: "10px",
-          backdropFilter: "blur(8px)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.45rem",
-          fontSize: "0.75rem",
-          fontFamily: "'Prompt', sans-serif",
-          fontWeight: 600,
-        }}
-      >
-        <ModeIcon mode={displayMode} />
-        {displayMode === "3row" ? "3 แถว" : "หน้าเดี่ยว"}
       </button>
 
       {/* Kiosk Selector Button */}

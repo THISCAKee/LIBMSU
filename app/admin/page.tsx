@@ -46,6 +46,8 @@ export default function AdminPage() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [displayMode, setDisplayMode] = useState<"3row" | "single">("3row");
+  const [isSavingMode, setIsSavingMode] = useState(false);
   // Drag-and-drop reorder state
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -69,9 +71,11 @@ export default function AdminPage() {
         router.push("/login");
       } else {
         fetchMedia();
+        fetchDisplayMode(selectedKiosk);
       }
     };
     checkUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   const fetchMedia = async () => {
@@ -92,6 +96,40 @@ export default function AdminPage() {
       mediaListRef.current = normalized;
     }
     setLoading(false);
+  };
+
+  const fetchDisplayMode = async (kioskId: string) => {
+    try {
+      const { data } = await supabase
+        .from("kiosk_settings")
+        .select("display_mode")
+        .eq("kiosk_id", kioskId)
+        .maybeSingle();
+      if (data?.display_mode === "single" || data?.display_mode === "3row") {
+        setDisplayMode(data.display_mode);
+      } else {
+        setDisplayMode("3row"); // default
+      }
+    } catch {
+      setDisplayMode("3row");
+    }
+  };
+
+  const handleSetDisplayMode = async (mode: "3row" | "single") => {
+    setDisplayMode(mode);
+    setIsSavingMode(true);
+    try {
+      await supabase
+        .from("kiosk_settings")
+        .upsert(
+          { kiosk_id: selectedKiosk, display_mode: mode },
+          { onConflict: "kiosk_id" },
+        );
+    } catch {
+      // ignore if table doesn't exist yet
+    } finally {
+      setIsSavingMode(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -545,9 +583,10 @@ export default function AdminPage() {
       <div className="dash-content">
         {/* ===== Kiosk Selector ===== */}
         <div className="dash-kiosk-selector" style={{ marginBottom: "1.5rem" }}>
-          <h3 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>
+          <h3 style={{ marginBottom: "0.75rem", fontSize: "1rem" }}>
             จัดการจอแสดงผล (Kiosk)
           </h3>
+          {/* Kiosk Tab Selector */}
           <div
             className="dash-row-tabs"
             style={{
@@ -569,11 +608,129 @@ export default function AdminPage() {
                       } as React.CSSProperties)
                     : {}
                 }
-                onClick={() => setSelectedKiosk(k)}
+                onClick={() => {
+                  setSelectedKiosk(k);
+                  fetchDisplayMode(k);
+                }}
               >
                 {k.toUpperCase()}
               </button>
             ))}
+          </div>
+
+          {/* Display Mode Toggle */}
+          <div
+            style={{
+              marginTop: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "0.8rem",
+                color: "rgba(255,255,255,0.5)",
+                fontWeight: 600,
+              }}
+            >
+              โหมดแสดงผล:
+            </span>
+
+            {/* 3-Row Mode */}
+            <button
+              onClick={() => handleSetDisplayMode("3row")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.4rem 0.9rem",
+                borderRadius: "8px",
+                border:
+                  displayMode === "3row"
+                    ? "2px solid #6366f1"
+                    : "2px solid rgba(255,255,255,0.1)",
+                background:
+                  displayMode === "3row"
+                    ? "rgba(99,102,241,0.18)"
+                    : "transparent",
+                color:
+                  displayMode === "3row" ? "#a5b4fc" : "rgba(255,255,255,0.45)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "0.82rem",
+                fontWeight: displayMode === "3row" ? 700 : 400,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="5" rx="1" />
+                <rect x="3" y="10" width="18" height="4" rx="1" />
+                <rect x="3" y="16" width="18" height="5" rx="1" />
+              </svg>
+              3 แถว
+            </button>
+
+            {/* Single Mode */}
+            <button
+              onClick={() => handleSetDisplayMode("single")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.4rem 0.9rem",
+                borderRadius: "8px",
+                border:
+                  displayMode === "single"
+                    ? "2px solid #14b8a6"
+                    : "2px solid rgba(255,255,255,0.1)",
+                background:
+                  displayMode === "single"
+                    ? "rgba(20,184,166,0.18)"
+                    : "transparent",
+                color:
+                  displayMode === "single"
+                    ? "#5eead4"
+                    : "rgba(255,255,255,0.45)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "0.82rem",
+                fontWeight: displayMode === "single" ? 700 : 400,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="6" y="2" width="12" height="20" rx="2" />
+              </svg>
+              หน้าเดี่ยว
+            </button>
+
+            {isSavingMode && (
+              <span
+                style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.35)" }}
+              >
+                กำลังบันทึก...
+              </span>
+            )}
           </div>
         </div>
 
