@@ -59,17 +59,22 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
     setPrevPhase("hidden");
   }, [items.length]);
 
+  const currentItem = items[currentIndex];
+
   // Auto-advance for images; videos advance via onEnded
   useEffect(() => {
-    if (items.length === 0) return;
-    const currentItem = items[currentIndex];
+    if (!currentItem) return;
 
     if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
 
     if (currentItem.type === "video") {
       if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        videoRef.current.play().catch(() => {});
+        // Only play if paused or at end, to avoid restarting every 30s poll
+        if (videoRef.current.paused || videoRef.current.ended) {
+          videoRef.current.play().catch((err) => {
+            console.error("Video play error:", err);
+          });
+        }
       }
       return;
     }
@@ -82,7 +87,7 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
     return () => {
       if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
     };
-  }, [currentIndex, items, nextSlide]);
+  }, [currentIndex, currentItem?.id, nextSlide]);
 
   useEffect(() => {
     return () => {
@@ -166,9 +171,11 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
         src={item.url}
         autoPlay={isCurrent}
         muted
+        loop={items.length === 1}
         playsInline
         style={style}
         onEnded={isCurrent && items.length > 1 ? nextSlide : undefined}
+        onError={isCurrent && items.length > 1 ? nextSlide : undefined}
       />
     );
   };
@@ -181,7 +188,6 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
     );
   }
 
-  const currentItem = items[currentIndex];
   const prevItem = prevIndex !== null ? items[prevIndex] : null;
 
   return (
@@ -384,11 +390,17 @@ export default function KioskPage() {
     return f === "both" || f === displayMode;
   });
 
-  const row1 = visibleMedia.filter((m) => m.row_slot === 1);
-  const row2 = visibleMedia.filter((m) => m.row_slot === 2);
-  const row3 = visibleMedia.filter((m) => m.row_slot === 3);
-  // Single mode: merge all rows in order
-  const allItems = [...row1, ...row2, ...row3];
+  const { row1, row2, row3, allItems } = (function () {
+    const r1 = visibleMedia.filter((m) => m.row_slot === 1);
+    const r2 = visibleMedia.filter((m) => m.row_slot === 2);
+    const r3 = visibleMedia.filter((m) => m.row_slot === 3);
+    return {
+      row1: r1,
+      row2: r2,
+      row3: r3,
+      allItems: [...r1, ...r2, ...r3],
+    };
+  })();
 
   const controlsStyle: React.CSSProperties = {
     opacity: showControls ? 1 : 0,
