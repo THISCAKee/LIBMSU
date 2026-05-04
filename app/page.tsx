@@ -164,6 +164,18 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
         />
       );
     }
+    const handleVideoEnded = isCurrent
+      ? () => {
+          if (items.length > 1) {
+            nextSlide();
+          } else if (videoRef.current) {
+            // Only 1 item — replay manually so onEnded fires next time too
+            videoRef.current.currentTime = 0;
+            videoRef.current.play().catch(() => {});
+          }
+        }
+      : undefined;
+
     return (
       <video
         key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
@@ -171,10 +183,9 @@ function RowSlideshow({ items }: { items: MediaItem[] }) {
         src={item.url}
         autoPlay={isCurrent}
         muted
-        loop={items.length === 1}
         playsInline
         style={style}
-        onEnded={isCurrent && items.length > 1 ? nextSlide : undefined}
+        onEnded={handleVideoEnded}
         onError={isCurrent && items.length > 1 ? nextSlide : undefined}
       />
     );
