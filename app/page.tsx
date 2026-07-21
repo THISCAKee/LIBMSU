@@ -1,230 +1,20 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import Image from "next/image";
+import {
+  MediaSlideshow,
+  type MediaItem,
+} from "@/components/MediaSlideshow";
 import { supabase } from "@/lib/supabaseClient";
-
-const CROSSFADE_MS = 2000;
-
-interface MediaItem {
-  id: number;
-  url: string;
-  type: "image" | "video";
-  duration: number;
-  row_slot: 1 | 2 | 3;
-  kiosk_id: string;
-  sort_order?: number;
-}
 
 const KIOSK_LIST = ["kiosk-1", "kiosk-2", "kiosk-3", "kiosk-SPACE"];
 type DisplayMode = "3row" | "single";
-type SlidePhase = "enter" | "active" | "exit" | "hidden";
-
-// ===== Single Row Slideshow Component =====
-function RowSlideshow({ items }: { items: MediaItem[] }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [prevIndex, setPrevIndex] = useState<number | null>(null);
-  const [currentPhase, setCurrentPhase] = useState<SlidePhase>("active");
-  const [prevPhase, setPrevPhase] = useState<SlidePhase>("hidden");
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const durationTimerRef = useRef<number | null>(null);
-  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const nextSlide = useCallback(() => {
-    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-    if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
-
-    setPrevIndex(currentIndex);
-    setPrevPhase("exit");
-    setCurrentIndex((prev) => (prev + 1) % items.length);
-    setCurrentPhase("enter");
-
-    enterTimerRef.current = setTimeout(() => {
-      setCurrentPhase("active");
-    }, 50);
-
-    transitionTimerRef.current = setTimeout(() => {
-      setPrevIndex(null);
-      setPrevPhase("hidden");
-    }, CROSSFADE_MS + 100);
-  }, [currentIndex, items.length]);
-
-  // Reset index when items change (e.g. mode switch)
-  useEffect(() => {
-    setCurrentIndex(0);
-    setPrevIndex(null);
-    setCurrentPhase("active");
-    setPrevPhase("hidden");
-  }, [items.length]);
-
-  const currentItem = items[currentIndex];
-
-  // Auto-advance for images; videos advance via onEnded
-  useEffect(() => {
-    if (!currentItem) return;
-
-    if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
-
-    if (currentItem.type === "video") {
-      if (videoRef.current) {
-        // Only play if paused or at end, to avoid restarting every 30s poll
-        if (videoRef.current.paused || videoRef.current.ended) {
-          videoRef.current.play().catch((err) => {
-            console.error("Video play error:", err);
-          });
-        }
-      }
-      return;
-    }
-
-    if (items.length > 1) {
-      const ms = currentItem.duration * 1000;
-      durationTimerRef.current = window.setTimeout(nextSlide, ms);
-    }
-
-    return () => {
-      if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
-    };
-  }, [currentIndex, currentItem?.id, nextSlide]);
-
-  useEffect(() => {
-    return () => {
-      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-      if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
-      if (durationTimerRef.current) clearTimeout(durationTimerRef.current);
-    };
-  }, []);
-
-  const getSlideStyle = (
-    phase: SlidePhase,
-    zIndex: number,
-    isVideo: boolean,
-  ): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      position: "absolute",
-      inset: 0,
-      width: "100%",
-      height: "100%",
-      objectFit: "contain",
-      objectPosition: "center",
-      background: "#000",
-      zIndex,
-      willChange: "opacity, transform, filter",
-      transition: [
-        `opacity ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-        `transform ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-        `filter ${CROSSFADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-      ].join(", "),
-    };
-    const blur = (px: number) => (isVideo ? "blur(0px)" : `blur(${px}px)`);
-
-    switch (phase) {
-      case "enter":
-        return {
-          ...base,
-          opacity: 0,
-          transform: "scale(1.02)",
-          filter: blur(4),
-        };
-      case "active":
-        return { ...base, opacity: 1, transform: "scale(1)", filter: blur(0) };
-      case "exit":
-        return {
-          ...base,
-          opacity: 0,
-          transform: "scale(0.98)",
-          filter: blur(6),
-        };
-      case "hidden":
-      default:
-        return { ...base, opacity: 0, transform: "scale(1)", filter: blur(0) };
-    }
-  };
-
-  const renderSlide = (
-    item: MediaItem,
-    phase: SlidePhase,
-    zIndex: number,
-    isCurrent: boolean,
-  ) => {
-    const style = getSlideStyle(phase, zIndex, item.type === "video");
-    if (item.type === "image") {
-      return (
-        <Image
-          key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
-          src={item.url}
-          alt="Kiosk Slide"
-          fill
-          sizes="100vw"
-          style={style}
-          draggable={false}
-          priority={isCurrent}
-        />
-      );
-    }
-    const handleVideoEnded = isCurrent
-      ? () => {
-          if (items.length > 1) {
-            nextSlide();
-          } else if (videoRef.current) {
-            // Only 1 item — replay manually so onEnded fires next time too
-            videoRef.current.currentTime = 0;
-            videoRef.current.play().catch(() => {});
-          }
-        }
-      : undefined;
-
-    return (
-      <video
-        key={`slide-${item.id}-${isCurrent ? "cur" : "prev"}`}
-        ref={isCurrent ? videoRef : undefined}
-        src={item.url}
-        autoPlay={isCurrent}
-        muted
-        playsInline
-        style={style}
-        onEnded={handleVideoEnded}
-        onError={isCurrent && items.length > 1 ? nextSlide : undefined}
-      />
-    );
-  };
-
-  if (items.length === 0) {
-    return (
-      <div className="row-empty">
-        <span>ยังไม่มีสื่อในช่องนี้</span>
-      </div>
-    );
-  }
-
-  const prevItem = prevIndex !== null ? items[prevIndex] : null;
-
-  return (
-    <div className="row-slideshow">
-      {prevItem && renderSlide(prevItem, prevPhase, 1, false)}
-      {renderSlide(currentItem, currentPhase, 2, true)}
-      {/* Slide indicator dots */}
-      {items.length > 1 && (
-        <div className="row-dots">
-          {items.map((_, idx) => (
-            <div
-              key={idx}
-              className={`row-dot ${idx === currentIndex ? "active" : ""}`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ===== Row Wrapper =====
 function KioskRow({ items }: { items: MediaItem[] }) {
   return (
     <div className="kiosk-row">
-      <RowSlideshow items={items} />
+      <MediaSlideshow items={items} />
     </div>
   );
 }
@@ -436,7 +226,7 @@ export default function KioskPage() {
       {/* ===== Display: Single fullscreen mode ===== */}
       {displayMode === "single" && (
         <div className="kiosk-row" style={{ flex: "1 1 100%" }}>
-          <RowSlideshow items={allItems} />
+          <MediaSlideshow items={allItems} />
         </div>
       )}
 
