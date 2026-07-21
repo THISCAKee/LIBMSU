@@ -29,9 +29,9 @@ interface MediaWorkspaceProps {
     row: RowSlot,
   ) => void;
   onDragEnterCard: (id: number) => void;
-  onRowDragEnter: (event: DragEvent<HTMLDivElement>, row: RowSlot) => void;
-  onRowDragLeave: (event: DragEvent<HTMLDivElement>, row: RowSlot) => void;
-  onRowDrop: (event: DragEvent<HTMLDivElement>, row: RowSlot) => void;
+  onRowDragEnter: (event: DragEvent<HTMLElement>, row: RowSlot) => void;
+  onRowDragLeave: (event: DragEvent<HTMLElement>, row: RowSlot) => void;
+  onRowDrop: (event: DragEvent<HTMLElement>, row: RowSlot) => void;
   onDragEnd: (row: RowSlot) => void;
   onUpdateDuration: (id: number, duration: number) => void;
   onToggleActive: (id: number, current: boolean) => void;
