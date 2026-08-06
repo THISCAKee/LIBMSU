@@ -1,4 +1,5 @@
 import type { DisplayMode } from "./types";
+import { displayLabel, isTvKiosk } from "../../lib/displayChannels";
 import styles from "./AdminStudio.module.css";
 
 interface ScreenSwitcherProps {
@@ -11,12 +12,6 @@ interface ScreenSwitcherProps {
   onSelectMode: (mode: DisplayMode) => void;
 }
 
-function kioskLabel(kiosk: string): string {
-  if (kiosk === "kiosk-TV") return "TV";
-  if (kiosk === "kiosk-SPACE") return "SPACE";
-  return kiosk.replace("kiosk-", "Kiosk ");
-}
-
 export function ScreenSwitcher({
   kiosks,
   selectedKiosk,
@@ -26,7 +21,7 @@ export function ScreenSwitcher({
   onSelectKiosk,
   onSelectMode,
 }: ScreenSwitcherProps) {
-  const isTv = selectedKiosk === "kiosk-TV";
+  const isTv = isTvKiosk(selectedKiosk);
 
   return (
     <section className={styles.screenToolbar} aria-label="เลือกจอแสดงผล">
@@ -43,7 +38,7 @@ export function ScreenSwitcher({
               aria-pressed={selected}
               onClick={() => onSelectKiosk(kiosk)}
             >
-              <span>{kioskLabel(kiosk)}</span>
+              <span>{displayLabel(kiosk)}</span>
               <strong aria-label={`${mediaCounts[kiosk] ?? 0} รายการ`}>
                 {mediaCounts[kiosk] ?? 0}
               </strong>

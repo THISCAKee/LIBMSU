@@ -1,5 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import {
+  ADMIN_DISPLAY_IDS,
+  previewHrefForKiosk,
+} from "../../lib/displayChannels";
 import { AdminHeader } from "./AdminHeader";
 import { ScreenSwitcher } from "./ScreenSwitcher";
 
@@ -36,5 +40,36 @@ describe("Admin shell", () => {
     expect(html).toContain("4");
     expect(html).not.toContain("3 แถว");
     expect(html).not.toContain("หน้าเดี่ยว");
+  });
+
+  it.each([
+    ["TVDLP_1", "/tv/TVDLP_1"],
+    ["TVDLP_2", "/tv/TVDLP_2"],
+  ] as const)("renders %s with its preview route", (id, href) => {
+    const header = renderToStaticMarkup(
+      <AdminHeader
+        selectedKiosk={id}
+        isTvKiosk
+        previewHref={previewHrefForKiosk(id)}
+        onLogout={() => {}}
+      />,
+    );
+    const switcher = renderToStaticMarkup(
+      <ScreenSwitcher
+        kiosks={ADMIN_DISPLAY_IDS}
+        selectedKiosk={id}
+        mediaCounts={{ [id]: 3 }}
+        displayMode="3row"
+        isSavingMode={false}
+        onSelectKiosk={() => {}}
+        onSelectMode={() => {}}
+      />,
+    );
+
+    expect(header).toContain(`href="${href}"`);
+    expect(header).toContain("TV 16:9");
+    expect(switcher).toContain("TVDLP_1");
+    expect(switcher).toContain("TVDLP_2");
+    expect(switcher).not.toContain("3 แถว");
   });
 });

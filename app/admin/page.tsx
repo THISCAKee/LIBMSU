@@ -15,6 +15,11 @@ import {
   moveMediaToRow,
   visibleRowsForKiosk,
 } from "@/lib/adminView";
+import {
+  ADMIN_DISPLAY_IDS,
+  isTvKiosk,
+  previewHrefForKiosk,
+} from "@/lib/displayChannels";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ScreenSwitcher } from "@/components/admin/ScreenSwitcher";
 import { UploadPanel } from "@/components/admin/UploadPanel";
@@ -28,14 +33,6 @@ import type {
   RowSlot,
 } from "@/components/admin/types";
 import styles from "@/components/admin/AdminStudio.module.css";
-
-const KIOSK_LIST = [
-  "kiosk-1",
-  "kiosk-2",
-  "kiosk-3",
-  "kiosk-SPACE",
-  "kiosk-TV",
-] as const;
 
 export default function AdminPage() {
   const [uploading, setUploading] = useState(false);
@@ -574,7 +571,7 @@ export default function AdminPage() {
   const handleSelectKiosk = (kioskId: string) => {
     setSelectedKiosk(kioskId);
     setMediaRowFilter("all");
-    if (kioskId === "kiosk-TV") {
+    if (isTvKiosk(kioskId)) {
       setSelectedRow(1);
     } else {
       fetchDisplayMode(kioskId);
@@ -595,22 +592,22 @@ export default function AdminPage() {
     );
   }
 
-  const isTvKiosk = selectedKiosk === "kiosk-TV";
+  const isTvDisplay = isTvKiosk(selectedKiosk);
   const visibleRows = visibleRowsForKiosk(selectedKiosk);
   const mediaCounts = countMediaByKiosk(mediaList);
-  const previewHref = isTvKiosk ? "/tv" : "/";
+  const previewHref = previewHrefForKiosk(selectedKiosk);
 
   return (
     <div className={styles.page}>
       <AdminHeader
         selectedKiosk={selectedKiosk}
-        isTvKiosk={isTvKiosk}
+        isTvKiosk={isTvDisplay}
         previewHref={previewHref}
         onLogout={handleLogout}
       />
 
       <ScreenSwitcher
-        kiosks={KIOSK_LIST}
+        kiosks={ADMIN_DISPLAY_IDS}
         selectedKiosk={selectedKiosk}
         mediaCounts={mediaCounts}
         displayMode={displayMode}
@@ -646,7 +643,7 @@ export default function AdminPage() {
           selectedKiosk={selectedKiosk}
           visibleRows={visibleRows}
           filter={mediaRowFilter}
-          isTvKiosk={isTvKiosk}
+          isTvKiosk={isTvDisplay}
           isSavingOrder={isSavingOrder}
           draggingId={draggingId}
           dragOverId={dragOverId}
