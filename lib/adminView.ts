@@ -3,11 +3,12 @@ import type {
   MediaRowFilter,
   RowSlot,
 } from "@/components/admin/types";
+import { isTvKiosk } from "./displayChannels";
 
 const ALL_ROWS: RowSlot[] = [1, 2, 3];
 
 export function visibleRowsForKiosk(kioskId: string): RowSlot[] {
-  return kioskId === "kiosk-TV" ? [1] : [...ALL_ROWS];
+  return isTvKiosk(kioskId) ? [1] : [...ALL_ROWS];
 }
 
 export function filterMediaForWorkspace(

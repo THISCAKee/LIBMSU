@@ -22,8 +22,12 @@ const media = (overrides: Partial<AdminMediaItem>): AdminMediaItem => ({
 });
 
 describe("admin view helpers", () => {
-  it("restricts TV to Row 1", () => {
-    expect(visibleRowsForKiosk("kiosk-TV")).toEqual([1]);
+  it.each(["kiosk-TV", "TVDLP_1", "TVDLP_2"])(
+    "restricts %s to Row 1",
+    (id) => expect(visibleRowsForKiosk(id)).toEqual([1]),
+  );
+
+  it("allows Rows 1–3 for a standard kiosk", () => {
     expect(visibleRowsForKiosk("kiosk-1")).toEqual([1, 2, 3]);
   });
 
