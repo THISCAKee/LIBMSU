@@ -13,14 +13,14 @@ describe("Admin shell", () => {
       <AdminHeader
         selectedKiosk="kiosk-TV"
         isTvKiosk
-        previewHref="/tv"
+        previewHref="/tvA"
         onLogout={() => {}}
       />,
     );
 
     expect(html).toContain("Media Studio");
     expect(html).toContain("KIOSK-TV");
-    expect(html).toContain('href="/tv"');
+    expect(html).toContain('href="/tvA"');
   });
 
   it("hides display modes for TV", () => {
@@ -36,15 +36,15 @@ describe("Admin shell", () => {
       />,
     );
 
-    expect(html).toContain("TV");
+    expect(html).toContain("TV A");
     expect(html).toContain("4");
     expect(html).not.toContain("3 แถว");
     expect(html).not.toContain("หน้าเดี่ยว");
   });
 
   it.each([
-    ["TVDLP_1", "/tv/TVDLP_1"],
-    ["TVDLP_2", "/tv/TVDLP_2"],
+    ["kiosk-TV", "/tvA"],
+    ["kiosk-TV-B", "/tvB"],
   ] as const)("renders %s with its preview route", (id, href) => {
     const header = renderToStaticMarkup(
       <AdminHeader
@@ -68,8 +68,8 @@ describe("Admin shell", () => {
 
     expect(header).toContain(`href="${href}"`);
     expect(header).toContain("TV 16:9");
-    expect(switcher).toContain("TVDLP_1");
-    expect(switcher).toContain("TVDLP_2");
+    expect(switcher).toContain("TV A");
+    expect(switcher).toContain("TV B");
     expect(switcher).not.toContain("3 แถว");
   });
 });

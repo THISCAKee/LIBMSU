@@ -22,7 +22,7 @@ const media = (overrides: Partial<AdminMediaItem>): AdminMediaItem => ({
 });
 
 describe("admin view helpers", () => {
-  it.each(["kiosk-TV", "TVDLP_1", "TVDLP_2"])(
+  it.each(["kiosk-TV", "kiosk-TV-B"])(
     "restricts %s to Row 1",
     (id) => expect(visibleRowsForKiosk(id)).toEqual([1]),
   );

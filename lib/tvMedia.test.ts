@@ -39,15 +39,15 @@ function createChainableSupabaseFake() {
 }
 
 describe("createTvMediaQuery", () => {
-  it("builds the complete TVDLP playlist query in deterministic order", () => {
+  it("builds the complete TV playlist query in deterministic order", () => {
     const { calls, client } = createChainableSupabaseFake();
 
-    createTvMediaQuery(client, "TVDLP_1");
+    createTvMediaQuery(client, "kiosk-TV-B");
 
     expect(calls).toEqual([
       ["from", "media_items"],
       ["select", "*"],
-      ["eq", "kiosk_id", "TVDLP_1"],
+      ["eq", "kiosk_id", "kiosk-TV-B"],
       ["eq", "row_slot", 1],
       ["eq", "is_active", true],
       ["order", "sort_order", { ascending: true }],
@@ -72,14 +72,14 @@ describe("normalizeTvMedia", () => {
             is_active: true,
           },
         ],
-        "TVDLP_2",
+        "kiosk-TV-B",
       ),
     ).toEqual([
       expect.objectContaining({
         id: 5,
         duration: 10,
         row_slot: 1,
-        kiosk_id: "TVDLP_2",
+        kiosk_id: "kiosk-TV-B",
         sort_order: 0,
       }),
     ]);
@@ -93,7 +93,7 @@ describe("normalizeTvMedia", () => {
         type: "video",
         duration: 12,
         row_slot: 1,
-        kiosk_id: "TVDLP_1",
+        kiosk_id: "kiosk-TV",
         sort_order: 4,
         is_active: false,
       },
@@ -108,14 +108,14 @@ describe("normalizeTvMedia", () => {
       },
     ];
 
-    expect(normalizeTvMedia(rows, "TVDLP_1")).toEqual([
+    expect(normalizeTvMedia(rows, "kiosk-TV")).toEqual([
       {
         id: 9,
         url: "https://example.com/active.jpg",
         type: "image",
         duration: 0,
         row_slot: 1,
-        kiosk_id: "TVDLP_1",
+        kiosk_id: "kiosk-TV",
         sort_order: 0,
       },
     ]);
